@@ -63,10 +63,12 @@ class InstructSVGDataset:
         
         
         return {
-            "prompt": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Please write SVG code for generating the image corresponding to the following description: {example['solution']}"},
-            ],
+            "prompt":  (
+            "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. "
+            "The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.\nUser: Please write SVG code for generating the image corresponding to the following description: "
+            + example["solution"]
+            + "\nAssistant: <think>"
+        ),
             # "solution": example["input"],
             # "svg": example["output"]
         }

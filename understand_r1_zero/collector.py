@@ -59,7 +59,7 @@ class FlexFeedbackCollector(FeedbackCollector):
         filtered_infos = []
         for p in feedback_data:
             # Create a filtered copy of the info dictionary without logging_data
-            filtered_info = {k: v for k, v in p.info.items() if k != 'actor/logging_data'}
+            filtered_info = {k: v for k, v in p.info.items() if  'actor/logging_data' not in k}
             filtered_infos.append(filtered_info)
         
         # Compute means only on the filtered info dictionaries

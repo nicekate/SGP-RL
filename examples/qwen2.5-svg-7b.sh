@@ -24,13 +24,13 @@ python train_zero_svg.py \
     --train_split train \
     --input_key solution \
     --output_key image_path \
-    --max-train 10000 \
+    --max-train 100000 \
     --num_prompt_epoch 1 \
     --prompt_max_length 1024 \
     --num_samples 8 \
     --temperature 1 \
     --top_p 1 \
-    --generate_max_length 3000 \
+    --generate_max_length 6000 \
     --log_completion_steps 10 \
     --save_steps -1 \
     --train_batch_size 128 \
@@ -39,14 +39,14 @@ python train_zero_svg.py \
     --rollout_batch_size 128 \
     --rollout_batch_size_per_device 16 \
     --pi_buffer_maxlen_per_device 128 \
-    --eval_batch_size 200 \
-    --eval_steps -1 \
-    --eval_temperature 0 \
-    --eval_generate_max_length 3000 \
+    --eval_batch_size 50 \
+    --eval_steps 10 \
+    --eval_temperature 1 \
+    --eval_generate_max_length 6000 \
     --eval_data ./datasets/evaluation_suite \
     --eval_input_key input \
     --use-wb \
-    --wb_project oat-zero \
+    --wb_project oat-zero-svg \
     --wb-run-name qwen2.5-svg-7b-grpo-r1template
 
 

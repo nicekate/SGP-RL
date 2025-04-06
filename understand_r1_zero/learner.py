@@ -69,7 +69,7 @@ from oat.interface import get_program, lp
 from oat.oracles.base import PreferenceOracleBase, RewardOracleBase
 from oat.types import Metric, TrajectoryData
 from oat.utils.data import load_data_from_disk_or_hf
-from understand_r1_zero.dataset import PromptImageDataset
+from understand_r1_zero.dataset import PromptImageDataset, PromptSVGDataset
 from dataset.registry import get_dataset_class
 
 from oat.utils.ops import masked_mean, masked_sum
@@ -114,10 +114,11 @@ class ZeroSVGLearner(PPOLearner):
         self.collector = FlexFeedbackCollector(
                     args, actors, PlasmaShmClient(self.ipc_server)
                 )
-        self.eval_dataset_dict = load_from_disk(args.eval_data)  # TODO: get fro HF.
+        self.eval_math_dataset_dict = load_from_disk(args.eval_data)  # TODO: get fro HF.
+        
         if args.test_split != "all":
-            self.eval_dataset_dict = {
-                k: v for k, v in self.eval_dataset_dict.items() if k in args.test_split
+            self.eval_math_dataset_dict = {
+                k: v for k, v in self.eval_math_dataset_dict.items() if k in args.test_split
             }
         self.args = args
         # Dr. GRPO Modification 1: Remove length bias by using masked_sum with a constant normalizer:
@@ -149,23 +150,30 @@ class ZeroSVGLearner(PPOLearner):
         return example
 
     def prepare_data(self, strategy, tokenizer):
-        prompt_dataset = get_dataset_class(self.args.prompt_data)().load_dataset(
-        self.args.prompt_data, 
-        None, 
-        max_train_samples=self.args.max_train,
-    )
+        svg_prompt_dataset = get_dataset_class(self.args.prompt_data_svg)().load_dataset(
+            self.args.prompt_data_svg, 
+            None, 
+            max_train_samples=self.args.max_train_svg,
+        )
+        math_prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data_math)
+        
         # prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data)
-        prompts_data = prompt_dataset[self.args.train_split]
+        svg_prompts_data = svg_prompt_dataset[self.args.train_split_svg]
+        math_prompts_data = math_prompt_dataset[self.args.train_split_math].select(
+            range(min(self.args.max_train_math, len(math_prompt_dataset[self.args.train_split_math])))
+        )
+        
+        
         # Prepare the data: templated questions & gt final answers.
         # prompts_data = prompts_data.map(self._apply_template)
         # print("prompts_data_apply_template", prompts_data[0])
 
         self.prompts_dataset = PromptImageDataset(
-            prompts_data,
+            svg_prompts_data,
             tokenizer,
             strategy,
-            input_key=self.args.input_key,
-            output_key=self.args.output_key,
+            input_key="solution",
+            output_key="image_path",
             apply_chat_template=False,  # Because we have applied already.
             get_reference=True,
         )
@@ -179,8 +187,25 @@ class ZeroSVGLearner(PPOLearner):
         self.eval_prompts_dataset = self.eval_prompts_dataloader = (
             None  # We use our own `self.eval_dataset_dict`.
         )
+        
+        
+        svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
+            "uwunion/instruct_svg", 
+            None, 
+            max_test_samples=100,
+        )['train']
+        svg_eval_dataset = PromptSVGDataset(
+            svg_eval_dataset,
+            tokenizer,
+            strategy,
+            input_key="solution",
+            output_key="svg",
+            apply_chat_template=False,  # Because we have applied already.
+            get_reference=True,
+        )
+        self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
 
-    def eval_dataloader_collate_fn(self, item_list):
+    def eval_math_dataloader_collate_fn(self, item_list):
         problems = []
         formatted_problems = []
         answers = []
@@ -192,27 +217,34 @@ class ZeroSVGLearner(PPOLearner):
             answers.append(item["answer"])
         return formatted_problems, problems, answers
 
-    def evaluate(self, dataloader, steps):
+    def evaluate_math(self, dataloader, steps):
         # Discard the default eval dataloader, and run eval on multiple benchmarks.
         del dataloader
         all_metrics = {}
         accuracies = []
         scores = []
         lens = []
-        for benchmark_name, dataset in self.eval_dataset_dict.items():
+        for benchmark_name, dataset in self.eval_math_dataset_dict.items():
             eval_prompts_dataloader = DataLoader(
                 dataset,
                 batch_size=self.args.eval_batch_size,
                 shuffle=False,
                 drop_last=False,
-                collate_fn=self.eval_dataloader_collate_fn,
+                collate_fn=self.eval_math_dataloader_collate_fn,
             )
-            metrics = super().evaluate(
+            metrics = self.do_evaluate(
                 eval_prompts_dataloader, f"{steps}_{benchmark_name}"
             )
+            for k in metrics.keys():
+                logging_data = None
+                if "logging_data" in k:
+                    logging_data = metrics[k]
+            metrics = {k: v for k, v in metrics.items() if  "logging_data" not in k}    
+            if logging_data is not None:
+                self._log_eval_completions_to_wandb(logging_data, benchmark_name)
             all_metrics.update(
                 {
-                    k.replace("eval/", f"eval/{benchmark_name}/"): v
+                    k.replace("eval/", f"eval_math/{benchmark_name}/"): v
                     for k, v in metrics.items()
                 }
             )
@@ -221,12 +253,60 @@ class ZeroSVGLearner(PPOLearner):
             lens.append(metrics["eval/response_tok_len"])
         all_metrics.update(
             {
-                "eval/average/accuracy": np.mean(accuracies),
-                "eval/average/score": np.mean(scores),
-                "eval/average/response_tok_len": np.mean(lens),
+                "eval_math/average/accuracy": np.mean(accuracies),
+                "eval_math/average/score": np.mean(scores),
+                "eval_math/average/response_tok_len": np.mean(lens),
             }
         )
+        
         return all_metrics
+
+    def evaluate_svg(self, dataloader, steps):
+        # Discard the default eval dataloader, and run eval on multiple benchmarks.
+        del dataloader
+        all_metrics = {}
+        accuracies = []
+        scores = []
+        lens = []
+        for benchmark_name, dataset in self.eval_svg_dataset_dict.items():
+            eval_prompts_dataloader = DataLoader(
+                dataset,
+                batch_size=self.args.eval_batch_size,
+                shuffle=False,
+                drop_last=False,
+            )
+            metrics = self.do_evaluate(
+                eval_prompts_dataloader, f"{steps}_{benchmark_name}"
+            )
+            for k in metrics.keys():
+                logging_data = None
+                if "logging_data" in k:
+                    logging_data = metrics[k]
+            metrics = {k: v for k, v in metrics.items() if  "logging_data" not in k}    
+            if logging_data is not None and self.strategy.is_rank_0():
+                self._log_eval_completions_to_wandb(logging_data, benchmark_name)
+            all_metrics.update(
+                {
+                    k.replace("eval/", f"eval_svg/{benchmark_name}/"): v
+                    for k, v in metrics.items()
+                }
+            )
+            accuracies.append(metrics["eval/accuracy"])
+            scores.append(metrics["eval/score"])
+            lens.append(metrics["eval/response_tok_len"])
+        all_metrics.update(
+            {
+                "eval_svg/average/accuracy": np.mean(accuracies),
+                "eval_svg/average/score": np.mean(scores),
+                "eval_svg/average/response_tok_len": np.mean(lens),
+            }
+        )
+        
+        return all_metrics
+
+
+
+
     def run(self):
         self._init(self.args, self.actors)
 
@@ -332,7 +412,7 @@ class ZeroSVGLearner(PPOLearner):
         # eval
         eval_info = {}
         if (self.args.eval_steps > 0 and eval) or self._should_do(self.args.eval_steps):
-            eval_info = self.evaluate(self.eval_prompts_dataloader, self.steps)
+            eval_info = self.evaluate_svg(None, self.steps)
 
         # save
         if (self.args.save_steps > 0 and save) or (
@@ -378,7 +458,7 @@ class ZeroSVGLearner(PPOLearner):
                     self.strategy.print(np.random.choice(self.pi_buffer))
                 self.strategy.pprint(logs_dict)
                 if self._wandb is not None:
-                    self._wandb.log(logs_dict)
+                    self._wandb.log(logs_dict,step=self.steps)
                     
     def _log_completions_to_wandb(self, feedback_data):
         """Process and log completion data to wandb from actor feedback."""
@@ -437,6 +517,149 @@ class ZeroSVGLearner(PPOLearner):
         step_name = f"train_completions/step_{self.steps}"
         
         
-        wandb.log({step_name: wandb.Table(dataframe=df)})
+        wandb.log({step_name: wandb.Table(dataframe=df)}, step=self.steps)
+        
+    def _log_eval_completions_to_wandb(self, logging_data, benchmark_name):
+        """Process and log completion data to wandb from actor feedback."""
+        import wandb
+        import pandas as pd
+        from PIL import Image
+        import io
+        import base64
+        import numpy as np
+        
+        # Collect logging data from all trajectories
+        
+        
+        # Combine all logging data
+        
+        
+        
+        if "rendered_image"  in logging_data:
+            imgs = logging_data["rendered_image"]
+            images_to_log = []
+            for image in imgs:
+                if image:
+                   images_to_log.append(wandb.Image(image))
+                else:
+                    placeholder = np.zeros((100, 100, 3), dtype=np.uint8)
+                    images_to_log.append(wandb.Image(Image.fromarray(placeholder)))
+            logging_data["rendered_image"] = images_to_log
+                    
+            
+        
+        # Create and log the table
+        df = pd.DataFrame(logging_data)
+        step_name = f"eval_completions/{benchmark_name}/step_{self.steps}"
+        
+        
+        wandb.log({step_name: wandb.Table(dataframe=df)}, step=self.steps)
                 
 
+
+    def do_evaluate(self, dataloader, steps):
+        self.strategy.print(f"Start generating evaluation responses at step {steps}")
+        st_time = time.time()
+        # 1) Let Actors cache the current behavior policy.
+        if self.strategy.is_rank_0():
+            done = [actor.futures.notify_eval_start() for actor in self.actors]
+            _ = [d.result() for d in done]
+
+        # 2) Push the latest policy for fast vLLM generation.
+        dist.barrier()
+        self._broadcast_to_vllm()
+
+        # 3) Generate and process results
+        win_rate = 0
+        scores = 0
+        accuracy = 0
+        response_len = 0
+        eval_count = 0
+        all_logging_data = {}
+        if self.strategy.is_rank_0():
+            processed_prompts = []
+            prompts = []
+            responses = []
+            references = []
+            futs = []
+            scores = []
+            wins = []
+            accuracies = []
+            
+            progress_bar = tqdm(range(len(dataloader)), desc="Evaluating")
+            for i, (batch_processed_prompts, batch_prompts, refs) in enumerate(
+                dataloader
+            ):
+                eval_count += len(batch_prompts)
+                processed_prompts.extend(batch_processed_prompts)
+                prompts.extend(batch_prompts)
+                refs_list = [x for x in refs]
+                references.extend(refs_list)
+
+                actor = self.actors[i % len(self.actors)]
+            
+                fut = actor.futures.generate_and_maybe_eval(
+                    batch_prompts, batch_processed_prompts, refs_list
+                    
+                )
+                futs.append(fut)
+                if len(futs) == len(self.actors) or i == len(dataloader) - 1:
+                    for fut in futs:
+                        resp, score, logging_data = fut.result()
+                        if logging_data:
+                            for key, values in logging_data.items():
+                                if key not in all_logging_data:
+                                    all_logging_data[key] = []
+                                all_logging_data[key].extend(values)
+                        responses.extend(resp)
+                        wins.extend(score > 0.5)  # For preference learning.
+                        accuracies.extend(score == 1)  # For RL with verifiable rewards.
+                        scores.extend(score)
+                    futs.clear()
+                progress_bar.update()
+
+            eval_res_path = os.path.join(self.save_path, "eval_results")
+            os.makedirs(eval_res_path, exist_ok=True)
+            # pd.DataFrame(
+            #     {
+            #         "prompts": prompts,
+            #         "output": responses,
+            #         "scores": scores,
+            #         f"format_prompts": processed_prompts,
+            #         "reference": references,
+            #         "generator": self.args.wb_run_name,
+            #     }
+            # ).to_json(
+            #     os.path.join(eval_res_path, f"{steps}.json"),
+            #     orient="records",
+            #     indent=4,
+            # )
+            win_rate = np.mean(wins).item()
+            scores = np.mean(scores).item()
+            accuracy = np.mean(accuracies).item()
+            response_len = np.mean(
+                tree.map_structure(lambda x: len(self.tokenizer.encode(x)), responses)
+            )
+
+        dist.barrier()
+        win_rate = self.strategy.broadcast(win_rate)
+        scores = self.strategy.broadcast(scores)
+        accuracy = self.strategy.broadcast(accuracy)
+        response_len = self.strategy.broadcast(response_len)
+        eval_count = self.strategy.broadcast(eval_count)
+        # all_logging_data = self.strategy.broadcast(all_logging_data)
+        # 4) Recover Actors' original behavior policy.
+        if self.strategy.is_rank_0():
+            done = [actor.futures.notify_eval_done() for actor in self.actors]
+            _ = [d.result() for d in done]
+
+        dist.barrier()
+        return {
+            "eval/rm_win_rate": win_rate,
+            "eval/score": scores,
+            "eval/accuracy": accuracy,
+            "eval/eval_count": eval_count,
+            "eval/elapse": time.time() - st_time,
+            "eval/response_tok_len": response_len,
+            "eval/logging_data": all_logging_data
+        }

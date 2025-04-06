@@ -70,8 +70,8 @@ def answer_tag_reward_fn(model_responses, prompts, images=None):
     # Initialize results structure
     results = {
         "rewards": [0.0] * num_examples,
-        "clip_reward": [0] * num_examples,
-        "dino_reward": [0] * num_examples,
+        "clip_reward": [0.0] * num_examples,
+        "dino_reward": [0.0] * num_examples,
         "svg_info": [{"success": False} for _ in range(num_examples)],
         "rendered_images": [None] * num_examples,
         "formatted": [False] * num_examples
