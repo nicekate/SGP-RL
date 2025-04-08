@@ -2,6 +2,8 @@
 python train_zero_svg.py \
     --critic_type grpo \
     --gpus 8 \
+    --seed 42 \
+    --no-rnd_seed \
     --enable_prefix_caching \
     --collocate \
     --vllm_sleep \
@@ -9,7 +11,6 @@ python train_zero_svg.py \
     --gradient-checkpointing \
     --flash-attn \
     --bf16 \
-    --rnd-seed \
     --learning_rate 0.000001 \
     --lr_scheduler constant \
     --num_ppo_epochs 1 \
@@ -30,7 +31,7 @@ python train_zero_svg.py \
     --num_samples 8 \
     --temperature 1 \
     --top_p 1 \
-    --generate_max_length 6000 \
+    --generate_max_length 3000 \
     --log_completion_steps 10 \
     --save_steps -1 \
     --train_batch_size 128 \
@@ -42,14 +43,18 @@ python train_zero_svg.py \
     --eval_batch_size 50 \
     --eval_steps 10 \
     --eval_temperature 1 \
-    --eval_generate_max_length 6000 \
+    --eval_generate_max_length 3000 \
     --eval_data ./datasets/evaluation_suite \
     --eval_input_key input \
     --use-wb \
     --wb_project oat-zero-svg \
-    --wb-run-name qwen2.5-svg-7b-grpo-r1template
+    --wb-run-name qwen2.5-svg-7b-grpo-r1template \
+    
+    
+    # --entropy_coeff 0.001
 
 
+    # --rnd-seed \
 
 
 
