@@ -924,6 +924,7 @@ class ZeroSVGLearner(PPOLearner):
                     entropy_loss =(-masked_sum(new_logps, mb_response_masks, axis=1) * mb_loss_masks).mean()
                     infos["entropy_loss"] = entropy_loss.detach()
                     loss -= args.entropy_coeff * entropy_loss
+                
                 if args.beta > 0:
                     mb_ref_logps = ref_logps[mini_batch_inds]
                     mb_ref_logps = mb_ref_logps[:, : mb_last_valid_token_pos - 1]

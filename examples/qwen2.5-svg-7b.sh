@@ -48,10 +48,14 @@ python train_zero_svg.py \
     --eval_input_key input \
     --use-wb \
     --wb_project oat-zero-svg \
-    --wb-run-name qwen2.5-svg-7b-grpo-r1template \
-    
+    --wb-run-name qwen2.5-svg-7b-grpo-r1template-cliphigher \
+    --cliprange_high 0.28
+
+
+    # --pretrain Qwen/Qwen2.5-7B \
     
     # --entropy_coeff 0.001
+    # --dapo_length_normalizer \
 
 
     # --rnd-seed \
