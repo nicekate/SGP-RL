@@ -22,11 +22,9 @@ class ZeroSVGArgs(PPOArgs):
     entropy_coeff: float = 0.0
     cliprange_high: float = 0.2
     cliprange_low: float = 0.2
-    entropy_coeff: float = 0.0
     dapo_length_normalizer: bool = False
     adv_no_std: bool = False
     skip_steps: int = 0
-    length_penalty: float = 0.0
     
     # Verifier.
     # verifier_version: Literal["fast", "math_verify"] = field(default="fast")

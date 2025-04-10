@@ -56,9 +56,12 @@ class ZeroSVGActor(PPOActor):
         # Let's stop when the model completes its answer.
         self.sampling_params.stop = ["</answer>"]
         self.sampling_params.include_stop_str_in_output = True
+        self.sampling_params.seed = args.seed
         self.eval_sampling_params.stop = ["</answer>"]
         self.eval_sampling_params.include_stop_str_in_output = True
+        self.eval_sampling_params.seed = args.seed
         self.step_mode = "svg"
+        
 
     def step(self,
         prompts: List[str],

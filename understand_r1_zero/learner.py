@@ -171,7 +171,7 @@ class ZeroSVGLearner(PPOLearner):
         values = rewards.view(-1, self.args.num_samples).mean(dim=1)
         values = values.repeat_interleave(self.args.num_samples, dim=0)
         advantages = rewards - values
-        if self.args.critic_type == "grpo" or self.args.adv_no_std:
+        if self.args.critic_type == "grpo" and not self.args.adv_no_std:
             # Additionally normalize by std.
             std_grouped_rewards = rewards.view(-1, self.args.num_samples).std(dim=1)
             std_grouped_rewards = std_grouped_rewards.repeat_interleave(
