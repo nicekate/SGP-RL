@@ -45,7 +45,9 @@ class COCOImageDataset:
         # Process annotations to create datasets
         train_dataset = COCOImageDataset._load_from_annotations(train_captions_file, coco_dir, "train")
         val_dataset = COCOImageDataset._load_from_annotations(val_captions_file, coco_dir, "val")
-        
+        # train_dataset = train_dataset.shuffle(seed=42)
+        val_dataset = val_dataset.shuffle(seed=42)
+    
         # Limit samples if specified
         if max_train_samples > 0:
             train_dataset = train_dataset.select(range(min(max_train_samples, len(train_dataset))))

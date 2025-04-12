@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import gc
 import logging
 import wandb
 import math
@@ -190,6 +191,7 @@ class ZeroSVGLearner(PPOLearner):
             self.args.prompt_data_svg, 
             None, 
             max_train_samples=self.args.max_train_svg,
+            max_test_samples=500,
         )
         math_prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data_math)
         
@@ -225,21 +227,35 @@ class ZeroSVGLearner(PPOLearner):
         )
         
         
-        svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
-            "uwunion/instruct_svg", 
-            None, 
-            max_test_samples=100,
-        )['train']
-        svg_eval_dataset = PromptSVGDataset(
+        # svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
+        #     "uwunion/instruct_svg", 
+        #     None, 
+        #     max_test_samples=100,
+        # )['train']
+        
+        
+        # svg_eval_dataset = PromptSVGDataset(
+        #     svg_eval_dataset,
+        #     tokenizer,
+        #     strategy,
+        #     input_key="solution",
+        #     output_key="svg",
+        #     apply_chat_template=False,  # Because we have applied already.
+        #     get_reference=True,
+        # )
+        # self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
+        svg_eval_dataset = svg_prompt_dataset['test']
+        svg_eval_dataset = PromptImageDataset(
             svg_eval_dataset,
             tokenizer,
             strategy,
             input_key="solution",
-            output_key="svg",
+            output_key="image_path",
             apply_chat_template=False,  # Because we have applied already.
             get_reference=True,
         )
-        self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
+        self.eval_svg_dataset_dict = {"coco":   svg_eval_dataset  }
+        
 
     def eval_math_dataloader_collate_fn(self, item_list):
         problems = []

@@ -25,6 +25,9 @@ class ZeroSVGArgs(PPOArgs):
     dapo_length_normalizer: bool = False
     adv_no_std: bool = False
     skip_steps: int = 0
+    dino_coeff: float = 1.0
+    clip_coeff: float = 1.0
+    length_coeff: float = 0.0
     
     # Verifier.
     # verifier_version: Literal["fast", "math_verify"] = field(default="fast")

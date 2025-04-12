@@ -1,6 +1,6 @@
 from .clips import (clip_text_image_distances_batch,
                     dinov2_image_image_distances_batch)
-from .svg import (extract_svg, safe_svg_to_image)
+from .svg import (extract_svg, safe_svg_to_image, get_svg_code_length)
 
 
 
@@ -37,6 +37,7 @@ def render_response_to_image(response):
                 return None, info
                 
             info["success"] = True
+            info["length"] = get_svg_code_length(svg_content)
             return image, info
             
         except Exception as e:
@@ -49,7 +50,7 @@ def render_response_to_image(response):
     
     
 
-def answer_tag_reward_fn(model_responses, prompts, images=None):
+def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0}):
     """
     Calculate rewards for SVG responses based on text-image and image-image similarity,
     enforcing the proper format structure with <think>/<answer> tags.
@@ -72,6 +73,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None):
         "rewards": [0.0] * num_examples,
         "clip_reward": [0.0] * num_examples,
         "dino_reward": [0.0] * num_examples,
+        "length_reward": [0.0] * num_examples,
         "svg_info": [{"success": False} for _ in range(num_examples)],
         "rendered_images": [None] * num_examples,
         "formatted": [False] * num_examples
@@ -84,6 +86,9 @@ def answer_tag_reward_fn(model_responses, prompts, images=None):
         results["rendered_images"][i] = rendered_image
         results["svg_info"][i] = info
         results["formatted"][i] = info.get("formatted", False)
+        if info["success"]:
+            results["length_reward"][i] = rewards_dict['length'] * info["length"]
+            results["rewards"][i] += results["length_reward"][i]
     
     
     # Step 2: Calculate CLIP text-image distances (text-to-image similarity)
@@ -103,7 +108,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None):
         for i, idx in enumerate(valid_indices):
             score = clip_scores[i]
             clip_reward = 1.0 - score  # Convert distance to similarity
-            results["rewards"][idx] += clip_reward
+            results["rewards"][idx] += clip_reward * rewards_dict['clip']
             results["clip_reward"][idx] = float(clip_reward)
     
     # Step 3: Calculate DINOv2 image-image distances (image similarity)
@@ -126,7 +131,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None):
             for i, idx in enumerate(img_valid_indices):
                 score = dino_scores[i]
                 dino_reward = 1.0 - score  # Convert distance to similarity
-                results["rewards"][idx] += dino_reward  # Add to existing CLIP reward
+                results["rewards"][idx] += dino_reward * rewards_dict['dino'] # Add to existing CLIP reward
                 results["dino_reward"][idx] = float(dino_reward)
     
     # Adjust rewards based on formatting - only give positive rewards if properly formatted

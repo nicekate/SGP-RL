@@ -5,7 +5,23 @@ from lxml import etree
 import os
 from PIL import Image
 import re
-
+def get_svg_code_length(svg_code):
+    """
+    Calculate the length of SVG code excluding whitespace characters.
+    
+    Args:
+        svg_code (str): The SVG content as a string
+        
+    Returns:
+        int: Length of the SVG code without whitespace characters
+    """
+    if not svg_code:
+        return 0
+        
+    # Remove all whitespace characters (space, tab, newline)
+    cleaned_svg = re.sub(r'\s+', '', svg_code)
+    
+    return len(cleaned_svg)
 
 def safe_svg_to_image(svg_code, timeout=0.1):
     """Convert SVG to image with timeout protection."""

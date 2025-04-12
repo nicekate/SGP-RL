@@ -42,8 +42,10 @@ class ZeroSVGActor(PPOActor):
         self.math_oracle = MATHOracle(
             template="r1", verifier_version="math_verify"
         )
-
-        self.svg_oracle = SVGOracle(
+        rewards_dict = {"clip": args.clip_coeff,
+                         "dino": args.dino_coeff,
+                         "length": args.length_coeff}
+        self.svg_oracle = SVGOracle(rewards_dict = rewards_dict
         )
 
         # if args.prompt_template in ["qwen_math", "no"]:
