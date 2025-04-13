@@ -296,8 +296,13 @@ class ZeroSVGActor(PPOActor):
         rewards_to_log = []
         dino_to_log = torch.tensor([x["dino_reward"] for x in oracle_infos]).reshape(len(prompts), -1)
         clip_to_log = torch.tensor([x["clip_reward"] for x in oracle_infos]).reshape(len(prompts), -1)
+        len_to_log = torch.tensor([x["length_reward"] for x in oracle_infos]).reshape(len(prompts), -1)
+        
+        
         info["actor/dino_rewards"] = dino_to_log.mean().item()
         info["actor/clip_rewards"] = clip_to_log.mean().item()
+        info["actor/length_reward"] = len_to_log.mean().item()
+        
         info["actor/valid_images_ratio"] = len([x for x in images_to_log if x is not None]) / len(images_to_log)
         trajectory_data = []
         count = 0
@@ -328,6 +333,7 @@ class ZeroSVGActor(PPOActor):
                         "reward": rewards[i][j].item(),
                         "dino_reward": dino_to_log[i][j].item(),
                         "clip_reward": clip_to_log[i][j].item(),
+                        "length_reward": len_to_log[i][j].item(),
                     }
                     if image_to_log:
                         # Convert image to base64 string for transmission

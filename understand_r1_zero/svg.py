@@ -7,19 +7,25 @@ from PIL import Image
 import re
 def get_svg_code_length(svg_code):
     """
-    Calculate the length of SVG code excluding whitespace characters.
+    Calculate the length of SVG code excluding whitespace characters and comments.
     
     Args:
         svg_code (str): The SVG content as a string
         
     Returns:
-        int: Length of the SVG code without whitespace characters
+        int: Length of the SVG code without whitespace and comments
     """
     if not svg_code:
         return 0
-        
+    
+    # Remove XML comments <!-- ... -->
+    no_xml_comments = re.sub(r'<!--.*?-->', '', svg_code, flags=re.DOTALL)
+    
+    # Remove CSS comments /* ... */ (which might appear in <style> tags)
+    no_comments = re.sub(r'/\*.*?\*/', '', no_xml_comments, flags=re.DOTALL)
+    
     # Remove all whitespace characters (space, tab, newline)
-    cleaned_svg = re.sub(r'\s+', '', svg_code)
+    cleaned_svg = re.sub(r'\s+', '', no_comments)
     
     return len(cleaned_svg)
 
