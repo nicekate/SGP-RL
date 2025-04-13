@@ -1034,8 +1034,12 @@ def dinov2_image_image_patch_distances_batch(
                         ref_patches = ref_patch_features[ref_position]  # [num_patches, feature_dim]
                         
                         # Normalize patch features
+                        if reduction == "debug":
+                            query_feature = query_patches.mean(dim=0)
+                            ref_feature = ref_patches.mean(dim=0)
                         query_patches = query_patches / query_patches.norm(dim=1, keepdim=True)
                         ref_patches = ref_patches / ref_patches.norm(dim=1, keepdim=True)
+                        import pdb;pdb.set_trace()
                         
                         # Compute pairwise cosine similarity between patches
                         similarity_matrix = torch.mm(query_patches, ref_patches.t())  # [num_query_patches, num_ref_patches]
@@ -1068,6 +1072,8 @@ def dinov2_image_image_patch_distances_batch(
                             per_query_similarity = similarity_matrix.min(dim=1)[0]  # [num_query_patches]
                             # Average all per-query-patch similarities
                             patch_similarity = per_query_similarity.mean().item()
+                        elif reduction == "debug":
+                            patch_similarity = query_feature.dot(ref_feature).item()
                         else:
                             # Default to mean
                             per_query_similarity = similarity_matrix.mean(dim=1)  # [num_query_patches]
