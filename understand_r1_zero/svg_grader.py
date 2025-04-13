@@ -1,8 +1,22 @@
 from .clips import (clip_text_image_distances_batch,
-                    dinov2_image_image_distances_batch)
+                    dinov2_image_image_distances_batch,
+                    dinov2_image_image_patch_distances_batch,
+                    siglip_text_image_distances_batch,)
 from .svg import (extract_svg, safe_svg_to_image, get_svg_code_length)
+from functools import partial
 
 
+
+clip_name_dict = {
+    "clip": clip_text_image_distances_batch,
+    "siglip": siglip_text_image_distances_batch}
+
+dino_name_dict = {
+    "dino": dinov2_image_image_distances_batch,
+    "dino_patchmax": partial(dinov2_image_image_patch_distances_batch, reduction = "max"),
+    "dino_patchposition": partial(dinov2_image_image_patch_distances_batch, reduction = "position")}
+
+    
 
 def render_response_to_image(response):
     """
@@ -25,32 +39,35 @@ def render_response_to_image(response):
         answer_content = response.split("<answer>")[-1].replace("</answer>", "")
         svg_content = extract_svg(answer_content)
         
-        if not svg_content:
-            info["error"] = "No SVG found in answer"
-            return None, info
-        
-        try:
-            image = safe_svg_to_image(svg_content)
-            
-            if image is None:
-                info["error"] = "Failed to render SVG"
-                return None, info
-                
-            info["success"] = True
-            info["length"] = get_svg_code_length(svg_content)
-            return image, info
-            
-        except Exception as e:
-            info["error"] = str(e)
-            return None, info
     else:
         # Format is incorrect - missing proper tags
         info["error"] = "Missing <think>/<answer> tags or contains <text>"
+        # Extract content between <answer> tags
+        svg_content = extract_svg(response)
+    
+    if not svg_content:
+        info["error"] = "No SVG found in answer"
         return None, info
+    
+    try:
+        image = safe_svg_to_image(svg_content)
+        
+        if image is None:
+            info["error"] = "Failed to render SVG"
+            return None, info
+            
+        info["success"] = True
+        info["length"] = get_svg_code_length(svg_content)
+        return image, info
+        
+    except Exception as e:
+        info["error"] = str(e)
+        return None, info
+
     
     
 
-def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0}):
+def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0, 'format':0}, models_dict = {'clip': 'clip', 'dino': 'dino'}):
     """
     Calculate rewards for SVG responses based on text-image and image-image similarity,
     enforcing the proper format structure with <think>/<answer> tags.
@@ -63,6 +80,8 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
     Returns:
         dict: Dictionary containing rewards and additional information
     """
+    dino_model = dino_name_dict[models_dict['dino']]
+    clip_model = clip_name_dict[models_dict['clip']]
     import os
     os.environ["TOKENIZERS_PARALLELISM"] = "true"
     
@@ -87,8 +106,11 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
         results["svg_info"][i] = info
         results["formatted"][i] = info.get("formatted", False)
         if info["success"]:
+                
             results["length_reward"][i] = rewards_dict['length'] * info["length"]
             results["rewards"][i] += results["length_reward"][i]
+            if results["formatted"][i]:
+                results["rewards"][i] += rewards_dict['format']
     
     
     # Step 2: Calculate CLIP text-image distances (text-to-image similarity)
@@ -103,7 +125,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
             valid_prompts.append(prompts[i])
     if valid_indices:
         
-        clip_scores = clip_text_image_distances_batch(valid_prompts, valid_rendered_images)
+        clip_scores = clip_model(valid_prompts, valid_rendered_images)
         # Update results with CLIP scores
         for i, idx in enumerate(valid_indices):
             score = clip_scores[i]
@@ -126,7 +148,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
                 img_references.append(ref_img)
         
         if img_valid_indices:
-            dino_scores = dinov2_image_image_distances_batch( img_references, img_rendered)
+            dino_scores = dino_model( img_references, img_rendered)
             # Update results with DINOv2 scores
             for i, idx in enumerate(img_valid_indices):
                 score = dino_scores[i]
@@ -136,7 +158,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
     
     # Adjust rewards based on formatting - only give positive rewards if properly formatted
     for i in range(num_examples):
-        if not results["formatted"][i]:
+        if not results["formatted"][i] and  rewards_dict['format'] == 0:
             results["rewards"][i] = 0.0
     
     return results

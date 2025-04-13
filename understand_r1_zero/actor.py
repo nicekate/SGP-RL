@@ -44,9 +44,13 @@ class ZeroSVGActor(PPOActor):
         )
         rewards_dict = {"clip": args.clip_coeff,
                          "dino": args.dino_coeff,
-                         "length": args.length_coeff}
-        self.svg_oracle = SVGOracle(rewards_dict = rewards_dict
-        )
+                         "length": args.length_coeff,
+                         "format": args.format_coeff}
+        reward_models_dict = {"clip": args.clip_model,
+                              "dino": args.dino_model}
+        self.svg_oracle = SVGOracle(rewards_dict = rewards_dict, 
+                                   models_dict = reward_models_dict)
+        
 
         # if args.prompt_template in ["qwen_math", "no"]:
         #     # These two templates are better used for Qwen models, which can themselves stop generation. Hence we unset all external stopping conditions.

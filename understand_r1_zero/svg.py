@@ -88,13 +88,14 @@ def extract_svg(text):
     if text is None:
         return ""
     # ans = SVGReward.extract_answer(text)
-    ans = text
-    match = re.search(r'(<svg .*?</svg>)', ans, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    else:
-        match = re.search(r'(<svg.*?)', ans, re.DOTALL)
-        if match:
-            return match.group(1).strip() 
+    complete_matches = re.findall(r'(<svg .*?</svg>)', text, re.DOTALL)
+    if complete_matches:
+        return complete_matches[-1].strip()  # Return the last match
+    
+    # If no complete SVG found, find the last opening SVG tag
+    start_idx = text.rfind("<svg")
+    if start_idx >= 0:
+        # Extract from the last <svg tag to the end of the text
+        return text[start_idx:].strip()
         
-        return ""
+    return ""

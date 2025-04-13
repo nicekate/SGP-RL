@@ -922,6 +922,171 @@ def dinov2_image_image_distances_batch(
     return distances
 
 
+
+def dinov2_image_image_patch_distances_batch(
+    reference_images: Union[Image.Image, List[Image.Image]], 
+    query_images: Union[Image.Image, List[Image.Image]], 
+    model_name="dinov2_vits14",
+    device=None,
+    reduction="max"  # How to combine patch distances: 'mean', 'min', or 'max'
+) -> Union[float, List[float]]:
+    """
+    Computes patch-wise feature distances between reference images and query images using DinoV2 features.
+    
+    Args:
+        reference_images: Either a single PIL Image or a list of PIL Images.
+        query_images: Either a single PIL Image or a list of PIL Images.
+        model_name: DinoV2 model variant to use ("dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14", "dinov2_vitg14").
+        device: Device to run the model on.
+        reduction: How to combine patch distances ('mean', 'min', or 'max').
+    
+    Returns:
+        If both inputs are single items: a float representing the distance
+        If either input is a list: a list of distances
+    """
+    # Handle single inputs
+    single_reference = isinstance(reference_images, Image.Image)
+    single_query = isinstance(query_images, Image.Image)
+    
+    if single_reference:
+        reference_images = [reference_images]
+    if single_query:
+        query_images = [query_images]
+    
+    # Determine device if not provided
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if device is None:
+        device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    
+    # Get the DinoV2 model with caching
+    model = get_dinov2_model(model_name=model_name, device=device)
+    
+    # Define preprocessing for DinoV2
+    preprocess = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    
+    # Filter out None images and track valid indices
+    valid_ref_indices = []
+    valid_ref_images = []
+    for i, img in enumerate(reference_images):
+        if img is not None:
+            valid_ref_indices.append(i)
+            valid_ref_images.append(to_pil(img))
+    
+    valid_query_indices = []
+    valid_query_images = []
+    for i, img in enumerate(query_images):
+        if img is not None:
+            valid_query_indices.append(i)
+            valid_query_images.append(prepare_image(img))
+    
+    # Initialize distances with default value (1.0 means maximum distance)
+    distances = [1.0] * len(reference_images)
+    
+    # Only process if we have valid images in both sets
+    if valid_ref_images and valid_query_images:
+        with torch.no_grad():
+            try:
+                # Store features from hooks
+                features_dict = {}
+                
+                def get_features_hook(name):
+                    def hook(model, input, output):
+                        # For ViT models, output shape is typically [batch_size, num_tokens, hidden_dim]
+                        # The first token is usually the [CLS] token, so we exclude it to get only patch tokens
+                        features_dict[name] = output[:, 1:, :].detach()  # Skip CLS token, keep only patch tokens
+                    return hook
+                
+                # Register hooks to capture patch features from the last transformer block
+                hooks = []
+                
+                # Register hook on the output of the last transformer block
+                if hasattr(model, 'blocks') and len(model.blocks) > 0:
+                    hooks.append(model.blocks[-1].register_forward_hook(get_features_hook('patches')))
+                
+                # Process reference images
+                ref_tensors = torch.stack([preprocess(img) for img in valid_ref_images]).to(device)
+                model(ref_tensors)  # Forward pass
+                ref_patch_features = features_dict['patches']
+                
+                # Clear features dict for query images
+                features_dict.clear()
+                
+                # Process query images
+                query_tensors = torch.stack([preprocess(img) for img in valid_query_images]).to(device)
+                model(query_tensors)  # Forward pass
+                query_patch_features = features_dict['patches']
+                
+                # Remove hooks
+                for hook in hooks:
+                    hook.remove()
+                
+                # Compute distances between corresponding pairs
+                for i, query_idx in enumerate(valid_query_indices):
+                    ref_position = valid_ref_indices.index(query_idx) if query_idx in valid_ref_indices else -1
+                    if ref_position >= 0:
+                        # Extract patch features for this specific pair
+                        query_patches = query_patch_features[i]  # [num_patches, feature_dim]
+                        ref_patches = ref_patch_features[ref_position]  # [num_patches, feature_dim]
+                        
+                        # Normalize patch features
+                        query_patches = query_patches / query_patches.norm(dim=1, keepdim=True)
+                        ref_patches = ref_patches / ref_patches.norm(dim=1, keepdim=True)
+                        
+                        # Compute pairwise cosine similarity between patches
+                        similarity_matrix = torch.mm(query_patches, ref_patches.t())  # [num_query_patches, num_ref_patches]
+
+                        # Apply reduction method for each query patch
+                        if reduction == "position":
+                            # Calculate similarity between patches at the same position (diagonal elements)
+                            # This assumes query_patches and ref_patches have the same number of patches
+                            if similarity_matrix.size(0) == similarity_matrix.size(1):
+                                # Extract diagonal elements (similarities between corresponding positions)
+                                position_similarities = torch.diag(similarity_matrix)
+                                # Average these position-wise similarities
+                                patch_similarity = position_similarities.mean().item()
+                            else:
+                                # Fall back to mean if dimensions don't match
+                                print(f"Warning: Patch counts don't match ({similarity_matrix.size(0)} vs {similarity_matrix.size(1)}), falling back to mean")
+                                patch_similarity = similarity_matrix.mean().item()
+                        elif reduction == "mean":
+                            # For each query patch, calculate mean similarity with all reference patches
+                            per_query_similarity = similarity_matrix.mean(dim=1)  # [num_query_patches]
+                            # Average all per-query-patch similarities
+                            patch_similarity = per_query_similarity.mean().item()
+                        elif reduction == "max":
+                            # For each query patch, get max similarity with any reference patch
+                            per_query_similarity = similarity_matrix.max(dim=1)[0]  # [num_query_patches]
+                            # Average all per-query-patch similarities
+                            patch_similarity = per_query_similarity.mean().item()
+                        elif reduction == "min":
+                            # For each query patch, get min similarity with any reference patch
+                            per_query_similarity = similarity_matrix.min(dim=1)[0]  # [num_query_patches]
+                            # Average all per-query-patch similarities
+                            patch_similarity = per_query_similarity.mean().item()
+                        else:
+                            # Default to mean
+                            per_query_similarity = similarity_matrix.mean(dim=1)  # [num_query_patches]
+                            # Average all per-query-patch similarities
+                            patch_similarity = per_query_similarity.mean().item()
+
+                        # Convert similarity to distance
+                        distances[query_idx] = 1.0 - patch_similarity
+            except Exception as e:
+                print(f"Error processing images in patch mode: {e}")
+                print(f"Details: {str(e)}")
+                # Fall back to default distances (1.0)
+    
+    # Return single value if both inputs were single items
+    if single_reference and single_query and len(distances) == 1:
+        return distances[0]
+    
+    return distances
+
 if __name__ == "__main__":
     svg_codes = ['<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">\n  <!-- Walls -->\n  <rect x="50" y="50" width="300" height="300" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  <rect x="100" y="100" width="200" height="200" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  \n  <!-- Floor -->\n  <rect x="50" y="350" width="300" height="50" fill="#e0e0e0" stroke="#000" stroke-width="2" />\n  \n  <!-- Window -->\n  <rect x="100" y="100" width="100" height="100" fill="#ffffff" stroke="#000" stroke-width="2" />\n  <rect x="110" y="110" width="80" height="80" fill="#ffffff" stroke="#000" stroke-width="2" />\n  <rect x="110" y="110" width="80" height="80" fill="#ffffff" stroke="#000" stroke-width="2" />\n  \n  <!-- Sink -->\n  <ellipse cx="200" cy="250" rx="50" ry="20" fill="#ffffff" stroke="#000" stroke-width="2" />\n  <ellipse cx="200" cy="250" rx="40" ry="10" fill="#ffffff" stroke="#000" stroke-width="2" />\n  \n  <!-- Counter -->\n  <rect x="50" y="200" width="300" height="50" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  <rect x="50" y="200" width="300" height="20" fill="#e0e0e0" stroke="#000" stroke-width="2" />\n  \n  <!-- Appliances -->\n  <rect x="100" y="300" width="100" height="100" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  <rect x="200" y="100" width="100" height="100" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  <ellipse cx="250" cy="150" rx="50" ry="20" fill="#ffffff" stroke="#000" stroke-width="2" />\n  \n  <!-- Light -->\n  <circle cx="200" cy="100" r="10" fill="#ffffff" stroke="#000" stroke-width="2" />\n  <circle cx="200" cy="100" r="5" fill="#000" />\n  \n  <!-- Washing Machine -->\n  <rect x="200" y="300" width="100" height="100" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  <rect x="210" y="310" width="80" height="80" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  <rect x="210" y="310" width="80" height="80" fill="#f0f0f0" stroke="#000" stroke-width="2" />\n  \n  <!-- Light Bulb -->\n  <circle cx="200" cy="100" r="10" fill="#ffffff" stroke="#000" stroke-width="2" />\n  <circle cx="200" cy="100" r="5" fill="#000" />\n</svg>', '<svg width="600" height="400" xmlns="http://www.w3.org/2000/svg">\n  <!-- Background color for the sky -->\n  <rect x="0" y="0" width="600" height="200" fill="#87CEEB" />\n  \n  <!-- Streets -->\n  <path d="M0,200 Q 100,250 200,200 Q 300,150 400,200 Q 500,250 600,200" stroke="#696969" stroke-width="5" fill="none" />\n  \n  <!-- Parade elements -->\n  <path d="M100,250 C 150,240 200,230 250,240 C 300,250 350,260 400,250 C 450,240 500,230 550,240" stroke="#FFD700" stroke-width="10" fill="#FFD700" />\n  <path d="M200,260 C 210,270 220,280 230,290 C 240,300 250,310 260,320" stroke="#FFD700" stroke-width="10" fill="#FFD700" />\n  \n  <!-- People -->\n  <rect x="100" y="280" width="50" height="100" fill="tan" />\n  <rect x="200" y="280" width="50" height="100" fill="tan" />\n  <rect x="300" y="280" width="50" height="100" fill="tan" />\n  <rect x="400" y="280" width="50" height="100" fill="tan" />\n  \n  <!-- Flags -->\n  <polygon points="100,250 150,240 200,250" fill="red" stroke="black" />\n  <polygon points="200,250 250,240 300,250" fill="blue" stroke="black" />\n  \n  <!-- Balloons -->\n  <ellipse cx="150" cy="300" rx="50" ry="20" fill="green" />\n  <ellipse cx="350" cy="300" rx="50" ry="20" fill="yellow" />\n  \n  <!-- Decorations -->\n  <circle cx="100" cy="270" r="10" fill="red" />\n  <circle cx="400" cy="270" r="10" fill="blue" />\n</svg>', '<svg width="500" height="300" xmlns="http://www.w3.org/2000/svg">\n  <!-- Street -->\n  <rect x="50" y="200" width="400" height="50" fill="lightgray" stroke="black" stroke-width="2" />\n  \n  <!-- Parade Path -->\n  <path d="M100,250 C150,200 200,150 250,200 C300,150 350,200 400,250" fill="none" stroke="red" stroke-width="10" />\n  \n  <!-- People -->\n  <rect x="100" y="200" width="50" height="100" fill="lightblue" stroke="black" stroke-width="2" />\n  <circle cx="120" cy="260" r="20" fill="blue" />\n  <rect x="200" y="200" width="50" height="100" fill="lightblue" stroke="black" stroke-width="2" />\n  <circle cx="220" cy="260" r="20" fill="blue" />\n  <rect x="300" y="200" width="50" height="100" fill="lightblue" stroke="black" stroke-width="2" />\n  <circle cx="320" cy="260" r="20" fill="blue" />\n  <rect x="400" y="200" width="50" height="100" fill="lightblue" stroke="black" stroke-width="2" />\n  <circle cx="420" cy="260" r="20" fill="blue" />\n  \n  <!-- Street Details -->\n  <rect x="50" y="250" width="100" height="10" fill="black" stroke="black" stroke-width="2" />\n  <rect x="400" y="250" width="100" height="10" fill="black" stroke="black" stroke-width="2" />\n  \n  <!-- Parade Details -->\n  <path d="M150,200 C200,150 250,200 C300,150 350,200" fill="none" stroke="red" stroke-width="10"/>\n  <path d="M200,200 C220,180 240,200 C260,220 280,200" fill="none" stroke="red" stroke-width="10" />\n</svg>', '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">\n  <!-- Background -->\n  <rect width="100%" height="100%" fill="#f0f0f0" />\n\n  <!-- Parade Route -->\n  <path d="M50,100 C100,150 200,100 300,150" stroke="#000" stroke-width="5" fill-opacity="0.5" />\n  \n  <!-- People -->\n  <g fill="rgba(255,255,255,0.8)">\n    <ellipse cx="100" cy="200" rx="30" ry="10" fill="#ffffff" stroke="#b6b698"/>\n    <g>\n      <path class="st0" d="M298873294L843995283H8"></path>\n      <ellipse class="st2" fill-rule="evenodd" fill="#FEFEFE" opacity="1"/>\n      <circle opacity="1"></circle>\n    </g>\n  </g>\n  \n  <!-- Flags -->\n  <g stroke-miterlimit="4">\n    <polygon fill="#FF5234" opacity=".6">\n      <path d="M677596H921v3l395v3H0v3C-5 3-4C5v3C899M39H71">\n        <stroke opacity=".5"/><path d="-69"/>\n        <stroke opacity=".5"/><path d="-9"/>\n      </path>\n    </polygon>\n  </g>\n  \n  <!-- Balloons -->\n  <g>\n    <ellipse stroke="#F6E0D3"></ellipse>\n  </g>\n  \n  <!-- Parade Floats -->\n  <!-- Add more details like floats, balloons, and flags as needed -->\n</svg>']
 

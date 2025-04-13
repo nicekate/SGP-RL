@@ -28,6 +28,10 @@ class ZeroSVGArgs(PPOArgs):
     dino_coeff: float = 1.0
     clip_coeff: float = 1.0
     length_coeff: float = 0.0
+    format_coeff: float = 0.0
+    dino_model: str = "dino"
+    clip_model: str = "clip"
+    
     
     # Verifier.
     # verifier_version: Literal["fast", "math_verify"] = field(default="fast")
