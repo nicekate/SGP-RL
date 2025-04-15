@@ -14,7 +14,9 @@ clip_name_dict = {
 dino_name_dict = {
     "dino": dinov2_image_image_distances_batch,
     "dino_patchmax": partial(dinov2_image_image_patch_distances_batch, reduction = "max"),
-    "dino_patchposition": partial(dinov2_image_image_patch_distances_batch, reduction = "position")}
+    "dino_patchposition": partial(dinov2_image_image_patch_distances_batch, reduction = "position"),
+    "dino_patchinversemax": partial(dinov2_image_image_patch_distances_batch, reduction = "inversemax"),
+    "dino_patchdebug": partial(dinov2_image_image_patch_distances_batch, reduction = "debug"),}
 
     
 

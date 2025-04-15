@@ -12,18 +12,19 @@ import torch.nn as nn
 import torchvision.models as models
 from typing import Union, List
 from func_timeout import func_timeout, FunctionTimedOut, func_set_timeout# Cache for SigLIP models
+import logging
 to_pil = transforms.ToPILImage()
 
 _siglip_models = {}
 
 @lru_cache(maxsize=300)
-def get_siglip_model(model_name="google/siglip-base-patch16-224", device=None):
+def get_siglip_model(model_name="google/siglip-large-patch16-384", device=None):
     """Get SigLIP model in a distributed-friendly way
     
     Args:
         model_name (str): The SigLIP model to load from Hugging Face:
             - "google/siglip-base-patch16-224" (base)
-            - "google/siglip-large-patch16-224" (large)
+            - "google/siglip-large-patch16-384" (large)
         device: The device to load the model on
         
     Returns:
@@ -43,6 +44,7 @@ def get_siglip_model(model_name="google/siglip-base-patch16-224", device=None):
     
     if model_key not in _siglip_models:
         try:
+            logging.info(f"Loading SigLIP model {model_name} on device {device}")
             # Load model and processor from Hugging Face
             processor = AutoProcessor.from_pretrained(model_name)
             model = AutoModel.from_pretrained(model_name).to(device).eval()
@@ -117,7 +119,7 @@ def get_mae_model(model_name="mae_vit_base_patch16", device=None):
 _dinov2_models = {}
 
 @lru_cache(maxsize=300)
-def get_dinov2_model(model_name="dinov2_vits14", device=None):
+def get_dinov2_model(model_name="dinov2_vitg14", device=None):
     """Get DinoV2 model in a distributed-friendly way
     
     Args:
@@ -144,6 +146,7 @@ def get_dinov2_model(model_name="dinov2_vits14", device=None):
     if model_key not in _dinov2_models:
         try:
             # Load model from torch hub
+            logging.info(f"Loading DinoV2 model {model_name} on device {device}")
             model = torch.hub.load('facebookresearch/dinov2', model_name)
             model = model.to(device).eval()
             
@@ -161,8 +164,11 @@ def get_dinov2_model(model_name="dinov2_vits14", device=None):
 # Load CLIP model
 _clip_models = {}
 @lru_cache(maxsize=300)
-def get_clip_model(model_name="ViT-B/32", device=None):
+def get_clip_model(#model_name="ViT-B/32", 
+                   model_name = "ViT-L/14",
+                   device=None):
     """Get CLIP model in a distributed-friendly way"""
+    
     # Get local process info
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     
@@ -175,6 +181,7 @@ def get_clip_model(model_name="ViT-B/32", device=None):
     
     if model_key not in _clip_models:
         # Load model for this specific process
+        logging.info(f"Loading CLIP model {model_name} on device {device}")
         model, preprocess = clip.load(model_name, device=device)
         _clip_models[model_key] = (model, preprocess)
     
@@ -387,7 +394,7 @@ def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[
             image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
             
             # Compute similarities (dot product)
-            similarities = torch.sum(text_embeddings * image_embeddings, dim=-1)
+            similarities = (torch.sum(text_embeddings * image_embeddings, dim=-1) + 1.0) / 2.0
             # Convert similarities to distances
             valid_distances = 1.0 - similarities
             
@@ -408,7 +415,7 @@ def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[
     return distances
 # Example Usage
 
-def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], model_name="google/siglip-base-patch16-224", device=None) -> Union[float, List[float]]:
+def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], model_name="google/siglip-large-patch16-384", device=None) -> Union[float, List[float]]:
     """
     Computes the cosine distance between texts and images using SigLIP embeddings in batch mode.
     
@@ -519,7 +526,7 @@ def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Unio
             # image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
             
             # Compute similarities (dot product)
-            similarities = torch.sum(text_embeddings * image_embeddings, dim=-1)
+            similarities =(torch.sum(text_embeddings * image_embeddings, dim=-1) + 1.0) / 2.0
             
             # Convert similarities to distances
             valid_distances = 1.0 - similarities.cpu().numpy()
@@ -822,7 +829,7 @@ def vgg_image_image_distances_batch(
 def dinov2_image_image_distances_batch(
     reference_images: Union[Image.Image, List[Image.Image]], 
     query_images: Union[Image.Image, List[Image.Image]], 
-    model_name="dinov2_vits14",
+    model_name="dinov2_vitg14",
     device=None
 ) -> Union[float, List[float]]:
     """
@@ -908,7 +915,7 @@ def dinov2_image_image_distances_batch(
                         ref_feat = ref_features[ref_position]
                         
                         # Calculate cosine distance (1 - cosine similarity)
-                        cosine_sim = torch.sum(query_feat * ref_feat).item()
+                        cosine_sim = (torch.sum(query_feat * ref_feat).item() + 1.0) / 2.0
                         distances[query_idx] = 1.0 - cosine_sim
             except RuntimeError as e:
                 print(f"Error processing images in one batch: {e}")
@@ -922,11 +929,11 @@ def dinov2_image_image_distances_batch(
     return distances
 
 
-
+import torch.nn.functional as F
 def dinov2_image_image_patch_distances_batch(
     reference_images: Union[Image.Image, List[Image.Image]], 
     query_images: Union[Image.Image, List[Image.Image]], 
-    model_name="dinov2_vits14",
+    model_name="dinov2_vitg14",
     device=None,
     reduction="max"  # How to combine patch distances: 'mean', 'min', or 'max'
 ) -> Union[float, List[float]]:
@@ -1036,13 +1043,18 @@ def dinov2_image_image_patch_distances_batch(
                         # Normalize patch features
                         if reduction == "debug":
                             query_feature = query_patches.mean(dim=0)
+                            query_feature = query_feature / query_feature.norm(dim=0, keepdim=True)
                             ref_feature = ref_patches.mean(dim=0)
+                            ref_feature = ref_feature / ref_feature.norm(dim=0, keepdim=True)
                         query_patches = query_patches / query_patches.norm(dim=1, keepdim=True)
                         ref_patches = ref_patches / ref_patches.norm(dim=1, keepdim=True)
-                        import pdb;pdb.set_trace()
+                        # import pdb;pdb.set_trace()
                         
                         # Compute pairwise cosine similarity between patches
                         similarity_matrix = torch.mm(query_patches, ref_patches.t())  # [num_query_patches, num_ref_patches]
+                        softmax_similarities = F.softmax(similarity_matrix, dim=0)
+                        similarity_matrix = (similarity_matrix + 1.0) / 2.0
+
 
                         # Apply reduction method for each query patch
                         if reduction == "position":
@@ -1072,8 +1084,15 @@ def dinov2_image_image_patch_distances_batch(
                             per_query_similarity = similarity_matrix.min(dim=1)[0]  # [num_query_patches]
                             # Average all per-query-patch similarities
                             patch_similarity = per_query_similarity.mean().item()
+                        elif reduction == "inversemax":
+                            # For each query patch, get max similarity with any reference patch
+                            per_ref_similarity = similarity_matrix.max(dim=0)[0]
+                            patch_similarity = per_ref_similarity.mean().item()
                         elif reduction == "debug":
-                            patch_similarity = query_feature.dot(ref_feature).item()
+                            # patch_similarity = query_feature.dot(ref_feature).item()
+                            per_query_similarity = softmax_similarities.max(dim=0)[0]  # [num_query_patches]
+                            # Average all per-query-patch similarities
+                            patch_similarity = per_query_similarity.mean().item()
                         else:
                             # Default to mean
                             per_query_similarity = similarity_matrix.mean(dim=1)  # [num_query_patches]
