@@ -255,3 +255,23 @@ If you find our works useful for your research, please consider citing:
 * The training codes are built on [Oat](https://github.com/sail-sg/oat), which employs [vLLM](https://github.com/vllm-project/vllm), [DeepSpeed](https://github.com/microsoft/DeepSpeed) and [launchpad](https://github.com/google-deepmind/launchpad). We serve DeepSeek models using [SGLang](https://github.com/sgl-project/sglang).
 * The base models are from [Qwen2.5-Math](https://huggingface.co/Qwen/Qwen2.5-Math-7B), [Llama](https://huggingface.co/meta-llama/Llama-3.2-3B), and [DeepSeek](https://huggingface.co/deepseek-ai/DeepSeek-V3-Base).
 * We thank [Qingfeng Lan](https://lancelqf.github.io/about/) for his time in thoroughly reviewing our code.
+
+
+
+
+##setup for SVG
+```diff
+pip install cairosvg
+pip install openai-clip
+...
+```
+dataset: Coco 2017
+unzip into the folder ~/data/coco
+```diff
+wget http://images.cocodataset.org/zips/train2017.zip
+wget http://images.cocodataset.org/zips/val2017.zip
+
+# Captions annotations
+wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip
+```
+
