@@ -119,7 +119,7 @@ def get_mae_model(model_name="mae_vit_base_patch16", device=None):
 _dinov2_models = {}
 
 @lru_cache(maxsize=300)
-def get_dinov2_model(model_name="dinov2_vitg14", device=None):
+def get_dinov2_model(model_name="dinov2_vits14", device=None):
     """Get DinoV2 model in a distributed-friendly way
     
     Args:
@@ -146,7 +146,7 @@ def get_dinov2_model(model_name="dinov2_vitg14", device=None):
     if model_key not in _dinov2_models:
         try:
             # Load model from torch hub
-            logging.info(f"Loading DinoV2 model {model_name} on device {device}")
+            logging.info(f"Loading DinoV2 model {model_name} on device {device} from local_rank {local_rank}")
             model = torch.hub.load('facebookresearch/dinov2', model_name)
             model = model.to(device).eval()
             
@@ -164,8 +164,8 @@ def get_dinov2_model(model_name="dinov2_vitg14", device=None):
 # Load CLIP model
 _clip_models = {}
 @lru_cache(maxsize=300)
-def get_clip_model(#model_name="ViT-B/32", 
-                   model_name = "ViT-L/14",
+def get_clip_model(model_name="ViT-B/32", 
+                #    model_name = "ViT-L/14",
                    device=None):
     """Get CLIP model in a distributed-friendly way"""
     
@@ -181,7 +181,7 @@ def get_clip_model(#model_name="ViT-B/32",
     
     if model_key not in _clip_models:
         # Load model for this specific process
-        logging.info(f"Loading CLIP model {model_name} on device {device}")
+        logging.info(f"Loading CLIP model {model_name} on device {device} from local_rank {local_rank}")
         model, preprocess = clip.load(model_name, device=device)
         _clip_models[model_key] = (model, preprocess)
     
@@ -321,7 +321,7 @@ def clip_image_image_distance(image1: Image.Image, image2: Image.Image, device=N
         print(f"CLIP processing error: {e}")
         return 1.0  # Return maximum distance on error
 
-def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], device=None) -> Union[float, List[float]]:
+def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], model_name = "ViT-B/32", device=None) -> Union[float, List[float]]:
     """
     Computes the cosine distance between texts and images using CLIP embeddings in batch mode.
     
@@ -357,7 +357,7 @@ def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[
     # device = "cpu"
     # print(f"clip_text_image_distance_batch: device: {device}")
     # Get model and preprocess function
-    model, preprocess = get_clip_model(device=device)
+    model, preprocess = get_clip_model(model_name = model_name, device=device)
     
     distances = []
     
@@ -829,7 +829,7 @@ def vgg_image_image_distances_batch(
 def dinov2_image_image_distances_batch(
     reference_images: Union[Image.Image, List[Image.Image]], 
     query_images: Union[Image.Image, List[Image.Image]], 
-    model_name="dinov2_vitg14",
+    model_name="dinov2_vits14",
     device=None
 ) -> Union[float, List[float]]:
     """
@@ -862,7 +862,7 @@ def dinov2_image_image_distances_batch(
     # print(f"dinov2_image_image_distances_batch: device: {device}")
     
     # Get the DinoV2 model with caching
-    model = get_dinov2_model(model_name=model_name, device=device)
+    model = get_dinov2_model(model_name = model_name, device=device)
     
     # Define preprocessing for DinoV2
     preprocess = transforms.Compose([
@@ -933,7 +933,7 @@ import torch.nn.functional as F
 def dinov2_image_image_patch_distances_batch(
     reference_images: Union[Image.Image, List[Image.Image]], 
     query_images: Union[Image.Image, List[Image.Image]], 
-    model_name="dinov2_vitg14",
+    # model_name="dinov2_vitg14",
     device=None,
     reduction="max"  # How to combine patch distances: 'mean', 'min', or 'max'
 ) -> Union[float, List[float]]:
@@ -966,7 +966,7 @@ def dinov2_image_image_patch_distances_batch(
         device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     
     # Get the DinoV2 model with caching
-    model = get_dinov2_model(model_name=model_name, device=device)
+    model = get_dinov2_model(device=device)
     
     # Define preprocessing for DinoV2
     preprocess = transforms.Compose([

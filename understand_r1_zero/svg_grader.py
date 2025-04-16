@@ -9,10 +9,16 @@ from functools import partial
 
 clip_name_dict = {
     "clip": clip_text_image_distances_batch,
+    "clip_small": partial(clip_text_image_distances_batch, model_name = "ViT-B/32"),
+    "clip_large": partial(clip_text_image_distances_batch, model_name = "ViT-L/14"),
     "siglip": siglip_text_image_distances_batch}
 
 dino_name_dict = {
     "dino": dinov2_image_image_distances_batch,
+    "dino_small": partial(dinov2_image_image_distances_batch, model_name = "dinov2_vits14"),
+    "dino_base": partial(dinov2_image_image_distances_batch, model_name = "dinov2_vitb14"),
+    "dino_large": partial(dinov2_image_image_distances_batch, model_name = "dinov2_vitl14"),
+    "dino_giant": partial(dinov2_image_image_distances_batch, model_name = "dinov2_vitg14"),
     "dino_patchmax": partial(dinov2_image_image_patch_distances_batch, reduction = "max"),
     "dino_patchposition": partial(dinov2_image_image_patch_distances_batch, reduction = "position"),
     "dino_patchinversemax": partial(dinov2_image_image_patch_distances_batch, reduction = "inversemax"),
@@ -109,7 +115,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
         results["formatted"][i] = info.get("formatted", False)
         if info["success"]:
                 
-            results["length_reward"][i] = rewards_dict['length'] * info["length"]
+            results["length_reward"][i] = rewards_dict['length'] * max((1-info["length"] / 5000.0), 0)
             results["rewards"][i] += results["length_reward"][i]
             if results["formatted"][i]:
                 results["rewards"][i] += rewards_dict['format']
@@ -164,3 +170,126 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
             results["rewards"][i] = 0.0
     
     return results
+
+
+def calculate_eval_rewards(model_responses, prompts, images=None, models_dict={'clip': ['clip'], 'dino': ['dino']}):
+    """
+    Calculate rewards for SVG responses based on multiple text-image and image-image similarity models.
+    
+    Args:
+        model_responses (List[str]): Model generated responses containing SVG code
+        prompts (List[str]): Text prompts/descriptions of the desired images
+        images (List[PIL.Image], optional): Reference images to compare against
+        models_dict (dict): Dictionary specifying which clip and dino models to use
+                            {'clip': ['clip_name1', 'clip_name2'], 'dino': ['dino_name1', 'dino_name2']}
+    
+    Returns:
+        dict: Dictionary containing rewards and additional information
+    """
+    import os
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"
+    
+    num_examples = len(model_responses)
+    
+    # Initialize results structure
+    results = {
+        "rewards": [0.0] * num_examples,
+        "svg_info": [{"success": False} for _ in range(num_examples)],
+        "rendered_images": [None] * num_examples,
+        "formatted": [False] * num_examples
+    }
+    
+    # Initialize reward dictionaries for each model
+    clip_models = models_dict.get('clip', [])
+    dino_models = models_dict.get('dino', [])
+    
+    for model_name in clip_models:
+        results[f"clip_{model_name}_reward"] = [0.0] * num_examples
+    
+    for model_name in dino_models:
+        results[f"dino_{model_name}_reward"] = [0.0] * num_examples
+    
+    # Step 1: Check format and extract SVG content
+    for i, response in enumerate(model_responses):
+        rendered_image, info = render_response_to_image(response)
+        results["rendered_images"][i] = rendered_image
+        results["svg_info"][i] = info
+        results["formatted"][i] = info.get("formatted", False)
+    
+    # Step 2: Calculate CLIP text-image distances for each CLIP model
+    valid_indices = []
+    valid_rendered_images = []
+    valid_prompts = []
+    
+    for i, rendered_img in enumerate(results["rendered_images"]):
+        if rendered_img is not None:
+            valid_indices.append(i)
+            valid_rendered_images.append(rendered_img)
+            valid_prompts.append(prompts[i])
+    
+    if valid_indices:
+        for clip_model_name in clip_models:
+            if clip_model_name in clip_name_dict:
+                clip_model = clip_name_dict[clip_model_name]
+                try:
+                    clip_scores = clip_model(valid_prompts, valid_rendered_images)
+                    
+                    # Update results with CLIP scores
+                    for i, idx in enumerate(valid_indices):
+                        score = clip_scores[i]
+                        clip_reward = 1.0 - score  # Convert distance to similarity
+                        results[f"clip_{clip_model_name}_reward"][idx] = float(clip_reward)
+                        
+                        # Add to total rewards
+                        results["rewards"][idx] += clip_reward
+                except Exception as e:
+                    print(f"Error calculating {clip_model_name} scores: {e}")
+    
+    # Step 3: Calculate DINOv2 image-image distances for each DINO model
+    if images is not None:
+        img_valid_indices = []
+        img_rendered = []
+        img_references = []
+        
+        assert len(images) == num_examples, "Number of images must match number of responses"
+        
+        for i, (rendered, ref_img) in enumerate(zip(results["rendered_images"], images)):
+            if rendered is not None and ref_img is not None:
+                img_valid_indices.append(i)
+                img_rendered.append(rendered)
+                img_references.append(ref_img)
+        
+        if img_valid_indices:
+            for dino_model_name in dino_models:
+                if dino_model_name in dino_name_dict:
+                    dino_model = dino_name_dict[dino_model_name]
+                    try:
+                        dino_scores = dino_model(img_references, img_rendered)
+                        
+                        # Update results with DINOv2 scores
+                        for i, idx in enumerate(img_valid_indices):
+                            score = dino_scores[i]
+                            dino_reward = 1.0 - score  # Convert distance to similarity
+                            results[f"dino_{dino_model_name}_reward"][idx] = float(dino_reward)
+                            
+                            # Add to total rewards
+                            results["rewards"][idx] += dino_reward
+                    except Exception as e:
+                        print(f"Error calculating {dino_model_name} scores: {e}")
+    
+    # Add summary statistics
+    for i in range(num_examples):
+        # Calculate average CLIP reward
+        clip_rewards = [results[f"clip_{model}_reward"][i] for model in clip_models]
+        if clip_rewards:
+            results["avg_clip_reward"] = [sum(clip_rewards)/len(clip_rewards) for _ in range(num_examples)]
+        
+        # Calculate average DINO reward
+        dino_rewards = [results[f"dino_{model}_reward"][i] for model in dino_models]
+        if dino_rewards:
+            results["avg_dino_reward"] = [sum(dino_rewards)/len(dino_rewards) for _ in range(num_examples)]
+    
+    return results
+
+
+

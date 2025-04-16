@@ -227,26 +227,26 @@ class ZeroSVGLearner(PPOLearner):
         )
         
         
-        # svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
-        #     "uwunion/instruct_svg", 
-        #     None, 
-        #     max_test_samples=100,
-        # )['train']
+        svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
+            "uwunion/instruct_svg", 
+            None, 
+            max_test_samples=100,
+        )['train']
         
         
-        # svg_eval_dataset = PromptSVGDataset(
-        #     svg_eval_dataset,
-        #     tokenizer,
-        #     strategy,
-        #     input_key="solution",
-        #     output_key="svg",
-        #     apply_chat_template=False,  # Because we have applied already.
-        #     get_reference=True,
-        # )
-        # self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
-        svg_eval_dataset = svg_prompt_dataset['test']
-        svg_eval_dataset = PromptImageDataset(
+        svg_eval_dataset = PromptSVGDataset(
             svg_eval_dataset,
+            tokenizer,
+            strategy,
+            input_key="solution",
+            output_key="svg",
+            apply_chat_template=False,  # Because we have applied already.
+            get_reference=True,
+        )
+        self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
+        svg_eval_dataset_coco = svg_prompt_dataset['test']
+        svg_eval_dataset_coco = PromptImageDataset(
+            svg_eval_dataset_coco,
             tokenizer,
             strategy,
             input_key="solution",
@@ -254,7 +254,8 @@ class ZeroSVGLearner(PPOLearner):
             apply_chat_template=False,  # Because we have applied already.
             get_reference=True,
         )
-        self.eval_svg_dataset_dict = {"coco":   svg_eval_dataset  }
+        # self.eval_svg_dataset_dict = {"coco":  svg_eval_dataset_coco }
+        self.eval_svg_dataset_dict["coco"] =  svg_eval_dataset_coco 
         
 
     def eval_math_dataloader_collate_fn(self, item_list):
@@ -321,6 +322,7 @@ class ZeroSVGLearner(PPOLearner):
         scores = []
         lens = []
         for benchmark_name, dataset in self.eval_svg_dataset_dict.items():
+            # logging.info(f"Start Evaluating {benchmark_name} at step {steps}")
             eval_prompts_dataloader = DataLoader(
                 dataset,
                 batch_size=self.args.eval_batch_size,
@@ -332,11 +334,21 @@ class ZeroSVGLearner(PPOLearner):
             )
             for k in metrics.keys():
                 logging_data = None
+                additional_metrics = None
                 if "logging_data" in k:
                     logging_data = metrics[k]
+                    additional_metrics =self._prepare_additional_metrics(logging_data)
+                    
             metrics = {k: v for k, v in metrics.items() if  "logging_data" not in k}    
             if logging_data is not None and self.strategy.is_rank_0():
                 self._log_eval_completions_to_wandb(logging_data, benchmark_name)
+                if additional_metrics is not None:
+                    additional_metrics = {
+                        k.replace("eval/", f"eval_svg/{benchmark_name}/"): v
+                        for k, v in additional_metrics.items()
+                    }
+                    self._wandb.log(additional_metrics,step=self.steps)
+                
             all_metrics.update(
                 {
                     k.replace("eval/", f"eval_svg/{benchmark_name}/"): v
@@ -353,7 +365,7 @@ class ZeroSVGLearner(PPOLearner):
                 "eval_svg/average/response_tok_len": np.mean(lens),
             }
         )
-        
+        # logging.info("return from evaluate_svg")
         return all_metrics
 
 
@@ -370,6 +382,7 @@ class ZeroSVGLearner(PPOLearner):
 
         if not self.strategy.args.debug:
             self.eval_and_log({}, eval=True, save=False)
+            # logging.info("finish eval_and_log")
 
         self.steps = 1
         self.gradient_update_st = time.time()
@@ -450,6 +463,7 @@ class ZeroSVGLearner(PPOLearner):
             self.prompt_epoch = p_ep + 1
 
         self.eval_and_log(train_info, eval=True, save=True)
+        
 
         if self.args.dump_all_buffer:  # For debug purpose.
             if not self.strategy.is_rank_0():
@@ -470,8 +484,10 @@ class ZeroSVGLearner(PPOLearner):
         eval_info = {}
         if (self.args.eval_steps > 0 and eval) or self._should_do(self.args.eval_steps):
             eval_info = self.evaluate_svg(None, self.steps)
+            # logging.info("finish eval")
 
         # save
+        
         if (self.args.save_steps > 0 and save) or (
             self.steps > 0
             and self._should_do(self.args.save_steps)
@@ -509,14 +525,61 @@ class ZeroSVGLearner(PPOLearner):
                     op="sum",
                 )
             )
+            # logging.info("finish logs_dict.update")
 
             if self.strategy.is_rank_0():
                 if self.pi_buffer:
                     self.strategy.print(np.random.choice(self.pi_buffer))
+                    
                 self.strategy.pprint(logs_dict)
                 if self._wandb is not None:
                     self._wandb.log(logs_dict,step=self.steps)
-                    
+                    # logging.info(f"finish logging metrics keys {logs_dict.keys()}")
+            # logging.info("exit eval_and_log")
+   
+   
+   
+    def _prepare_additional_metrics(self, all_logging_data):
+        additional_metrics = {}
+        if all_logging_data:
+            assert "formatted" in all_logging_data and all_logging_data["formatted"]
+            formatted_mask = np.array(all_logging_data["formatted"], dtype=bool)
+            formatted_count = formatted_mask.sum()
+            additional_metrics["eval/formatted_rate"] = formatted_mask.mean()
+            additional_metrics["eval/formatted_count"] = formatted_count
+            
+        
+            
+            # Extract clip and dino model-specific rewards, but only average over formatted samples
+            clip_model_keys = [key for key in all_logging_data.keys() if key.startswith("clip_") and key.endswith("_reward")]
+            for key in clip_model_keys:
+                if all_logging_data[key]:
+                    values = np.array(all_logging_data[key])
+                    # Average only over formatted samples
+                    additional_metrics[f"eval/{key}"] = values[formatted_mask].mean()
+                    # # Also keep the full average for comparison
+                    # additional_metrics[f"eval/{key}_all"] = values.mean()
+            
+            dino_model_keys = [key for key in all_logging_data.keys() if key.startswith("dino_") and key.endswith("_reward")]
+            for key in dino_model_keys:
+                if all_logging_data[key]:
+                    values = np.array(all_logging_data[key])
+                    # Average only over formatted samples
+                    additional_metrics[f"eval/{key}"] = values[formatted_mask].mean()
+                    # # Also keep the full average for comparison
+                    # additional_metrics[f"eval/{key}_all"] = values.mean()
+            
+            # Extract aggregated rewards if present
+            if "clip_reward" in all_logging_data and all_logging_data["clip_reward"]:
+                values = np.array(all_logging_data["clip_reward"])
+                additional_metrics["eval/clip_reward"] = values[formatted_mask].mean()
+                # additional_metrics["eval/clip_reward_all"] = values.mean()
+            
+            if "dino_reward" in all_logging_data and all_logging_data["dino_reward"]:
+                values = np.array(all_logging_data["dino_reward"])
+                additional_metrics["eval/dino_reward"] = values[formatted_mask].mean()
+                # additional_metrics["eval/dino_reward_all"] = values.mean() 
+            return additional_metrics             
     def _log_completions_to_wandb(self, feedback_data):
         """Process and log completion data to wandb from actor feedback."""
         import wandb
@@ -633,6 +696,7 @@ class ZeroSVGLearner(PPOLearner):
         response_len = 0
         eval_count = 0
         all_logging_data = {}
+        additional_metrics = {}
         if self.strategy.is_rank_0():
             processed_prompts = []
             prompts = []
@@ -697,6 +761,12 @@ class ZeroSVGLearner(PPOLearner):
             response_len = np.mean(
                 tree.map_structure(lambda x: len(self.tokenizer.encode(x)), responses)
             )
+        
+            # logging.info("start to gather additional_metrics")
+                
+            
+            
+                
 
         dist.barrier()
         win_rate = self.strategy.broadcast(win_rate)
@@ -704,6 +774,7 @@ class ZeroSVGLearner(PPOLearner):
         accuracy = self.strategy.broadcast(accuracy)
         response_len = self.strategy.broadcast(response_len)
         eval_count = self.strategy.broadcast(eval_count)
+        
         # all_logging_data = self.strategy.broadcast(all_logging_data)
         # 4) Recover Actors' original behavior policy.
         if self.strategy.is_rank_0():
@@ -711,6 +782,10 @@ class ZeroSVGLearner(PPOLearner):
             _ = [d.result() for d in done]
 
         dist.barrier()
+        
+
+        # logging.info("return from do_evaluate")
+        # logging.info(f"logging data keys: {all_logging_data.keys()}")
         return {
             "eval/rm_win_rate": win_rate,
             "eval/score": scores,
@@ -718,7 +793,7 @@ class ZeroSVGLearner(PPOLearner):
             "eval/eval_count": eval_count,
             "eval/elapse": time.time() - st_time,
             "eval/response_tok_len": response_len,
-            "eval/logging_data": all_logging_data
+            "eval/logging_data": all_logging_data,
         }
         
         

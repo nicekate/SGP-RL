@@ -11,7 +11,7 @@ from understand_r1_zero.math_grader import boxed_reward_fn
 # from .clips import (clip_text_image_distances_batch,
 #                                      dinov2_image_image_distances_batch)
 # from .svg import (extract_svg, safe_svg_to_image)
-from .svg_grader import answer_tag_reward_fn
+from .svg_grader import answer_tag_reward_fn, calculate_eval_rewards
 class SVGOracle(RewardOracleBase, PreferenceOracleBase):
     """Defines the verification rules for SVG generation."""
 
@@ -84,6 +84,32 @@ class SVGOracle(RewardOracleBase, PreferenceOracleBase):
         rewards, info = self.get_reward( candidates_A,inputs, candidates_B)
         return rewards.numpy(), info
     
+    
+class SVGEvalOracle(SVGOracle):
+    """Oracle for evaluating SVG generation using multiple models for evaluation."""
+
+    def __init__(self, 
+                 models_dict={'clip': ['clip_small', 'clip_large'], 'dino': ['dino_small', 'dino_base', 'dino_large', 'dino_giant']},
+                #  models_dict={'clip': ['clip_small'], 'dino': ['dino_small']}
+                 ) -> None:
+        """
+        Initialize the SVG evaluation oracle.
+        
+        Args:
+            models_dict: Dictionary specifying which models to use for evaluation
+                        {'clip': ['clip_name1', 'clip_name2'], 'dino': ['dino_name1', 'dino_name2']}
+        """
+        # Initialize without calling SVGOracle.__init__
+        RewardOracleBase.__init__(self)
+        PreferenceOracleBase.__init__(self)
+        
+        # Set the reward function directly to calculate_eval_rewards
+        self.svg_reward_fn = functools.partial(
+            calculate_eval_rewards, models_dict=models_dict
+        )
+        
+        # Create process pool same as parent class
+        self.mp_pool = Pool(2)
     
     
 class MATHOracle(RewardOracleBase, PreferenceOracleBase):

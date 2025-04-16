@@ -29,8 +29,8 @@ class ZeroSVGArgs(PPOArgs):
     clip_coeff: float = 1.0
     length_coeff: float = 0.0
     format_coeff: float = 0.0
-    dino_model: str = "dino"
-    clip_model: str = "clip"
+    dino_model: str = "dino_small"
+    clip_model: str = "clip_small"
     
     
     # Verifier.

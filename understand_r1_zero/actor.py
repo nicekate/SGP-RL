@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-from understand_r1_zero.oracle import SVGOracle
+from understand_r1_zero.oracle import SVGOracle, SVGEvalOracle
 
 import itertools
 import logging
@@ -50,7 +50,7 @@ class ZeroSVGActor(PPOActor):
                               "dino": args.dino_model}
         self.svg_oracle = SVGOracle(rewards_dict = rewards_dict, 
                                    models_dict = reward_models_dict)
-        
+        self.svg_eval_oracle = SVGEvalOracle()
 
         # if args.prompt_template in ["qwen_math", "no"]:
         #     # These two templates are better used for Qwen models, which can themselves stop generation. Hence we unset all external stopping conditions.
@@ -398,7 +398,8 @@ class ZeroSVGActor(PPOActor):
 
         win_probs = None
         if self.step_mode == "svg":
-            oracle = self.svg_oracle
+            oracle = self.svg_eval_oracle
+            # oracle = self.svg_oracle
         elif self.step_mode == "math":
             oracle = self.math_oracle
         else:
@@ -436,19 +437,46 @@ class ZeroSVGActor(PPOActor):
         }
         reshaped_index = torch.arange(len(prompts) * self.eval_sampling_params.n).reshape(self.eval_sampling_params.n, len(prompts))
         reorder_index = [reshaped_index[i][j].item() for j in range(len(prompts))  for i in range(self.eval_sampling_params.n) ]
-        if "rendered_images" in eval_info[0].keys() and "dino_reward" in eval_info[0].keys() and "clip_reward" in eval_info[0].keys():
+        # Replace the hardcoded reward collection with this dynamic approach
+        if "rendered_images" in eval_info[0].keys():
+            # Add rendered images to logging data
             images_to_log = [x["rendered_images"] for x in eval_info]
             images_to_log = [images_to_log[i] for i in reorder_index]
-            dino_to_log = [x["dino_reward"] for x in eval_info]
-            dino_to_log = [dino_to_log[i] for i in reorder_index]
-            clip_to_log = [x["clip_reward"] for x in eval_info]
-            clip_to_log = [clip_to_log[i] for i in reorder_index]
-            logging_data["dino_reward"] = dino_to_log
-            logging_data["clip_reward"] = clip_to_log
             logging_data["rendered_image"] = images_to_log
-        
-        
-        
-        
-        
+            
+            # Dynamically collect all DINO model rewards
+            dino_model_keys = [key for key in eval_info[0].keys() if key.startswith("dino_") and key.endswith("_reward")]
+            for key in dino_model_keys:
+                values_to_log = [x.get(key, 0.0) for x in eval_info]
+                values_to_log = [values_to_log[i] for i in reorder_index]
+                logging_data[key] = values_to_log
+            
+            # Dynamically collect all CLIP model rewards
+            clip_model_keys = [key for key in eval_info[0].keys() if key.startswith("clip_") and key.endswith("_reward")]
+            for key in clip_model_keys:
+                values_to_log = [x.get(key, 0.0) for x in eval_info]
+                values_to_log = [values_to_log[i] for i in reorder_index]
+                logging_data[key] = values_to_log
+            # Check if pre-computed averages exist in eval_info
+            if "avg_dino_reward" in eval_info[0]:
+                # Use pre-computed average DINO rewards
+                avg_dino_values = [x.get("avg_dino_reward", 0.0) for x in eval_info]
+                avg_dino_values = [avg_dino_values[i] for i in reorder_index]
+                logging_data["dino_reward"] = avg_dino_values
+            
+            if "avg_clip_reward" in eval_info[0]:
+                # Use pre-computed average CLIP rewards
+                avg_clip_values = [x.get("avg_clip_reward", 0.0) for x in eval_info]
+                avg_clip_values = [avg_clip_values[i] for i in reorder_index]
+                logging_data["clip_reward"] = avg_clip_values
+            
+            # Add formatted flag to logging data
+            if "formatted" in eval_info[0]:
+                formatted_values = [x.get("formatted", False) for x in eval_info]
+                formatted_values = [formatted_values[i] for i in reorder_index]
+                logging_data["formatted"] = formatted_values
+                
+            
+            
+            
         return reshaped_responses, reshaped_win_probs, logging_data
