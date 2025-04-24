@@ -24,7 +24,32 @@ dino_name_dict = {
     "dino_patchinversemax": partial(dinov2_image_image_patch_distances_batch, reduction = "inversemax"),
     "dino_patchdebug": partial(dinov2_image_image_patch_distances_batch, reduction = "debug"),}
 
+def length_penalty(length: int) -> float:
+    """
+    Calculate a length penalty that decreases linearly from 1 to 0
+    as length increases from 0 to 6000.
     
+    Args:
+        length (int): The length value to penalize
+        
+    Returns:
+        float: Penalty value between 0 and 1 (1 = no penalty, 0 = maximum penalty)
+    """
+    # Linear penalty from 1 (at length=0) to 0 (at length=6000)
+    penalty = 1.0 - (length / 6000.0)
+    
+    # Ensure the penalty is clamped between 0 and 1
+    return max(0.0, min(1.0, penalty))   
+
+
+def is_format_correct(response):
+    if "</think> <answer>" in response and "</answer>" in response:
+        return True
+    return False
+def no_text_in_response(response):
+    if "</text>" in response:
+        return False
+    return True
 
 def render_response_to_image(response):
     """
@@ -41,7 +66,7 @@ def render_response_to_image(response):
     info = {"success": False, "formatted": False}
     
     # Check for proper format with <think>/<answer> tags
-    if "</think> <answer>" in response and "</answer>" in response and "</text>" not in response:
+    if is_format_correct(response) and no_text_in_response(response):
         info["formatted"] = True
         # Extract content between <answer> tags
         answer_content = response.split("<answer>")[-1].replace("</answer>", "")
@@ -49,7 +74,7 @@ def render_response_to_image(response):
         
     else:
         # Format is incorrect - missing proper tags
-        info["error"] = "Missing <think>/<answer> tags or contains <text>"
+        info["error"] = "format error"
         # Extract content between <answer> tags
         svg_content = extract_svg(response)
     
@@ -75,7 +100,7 @@ def render_response_to_image(response):
     
     
 
-def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0, 'format':0}, models_dict = {'clip': 'clip', 'dino': 'dino'}):
+def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0, 'format':0}, models_dict = {'clip': 'clip', 'dino': 'dino'}, offset = 0.0):
     """
     Calculate rewards for SVG responses based on text-image and image-image similarity,
     enforcing the proper format structure with <think>/<answer> tags.
@@ -115,7 +140,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
         results["formatted"][i] = info.get("formatted", False)
         if info["success"]:
                 
-            results["length_reward"][i] = rewards_dict['length'] * max((1-info["length"] / 5000.0), 0)
+            results["length_reward"][i] = rewards_dict['length'] * length_penalty(info["length"])
             results["rewards"][i] += results["length_reward"][i]
             if results["formatted"][i]:
                 results["rewards"][i] += rewards_dict['format']
@@ -137,7 +162,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
         # Update results with CLIP scores
         for i, idx in enumerate(valid_indices):
             score = clip_scores[i]
-            clip_reward = 1.0 - score  # Convert distance to similarity
+            clip_reward = ((1.0 - score) + 1.0) /2.0  # Convert distance to similarity
             results["rewards"][idx] += clip_reward * rewards_dict['clip']
             results["clip_reward"][idx] = float(clip_reward)
     
@@ -160,14 +185,14 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
             # Update results with DINOv2 scores
             for i, idx in enumerate(img_valid_indices):
                 score = dino_scores[i]
-                dino_reward = 1.0 - score  # Convert distance to similarity
+                dino_reward = (1.0 - score + 1.0)/2.0 # Convert distance to similarity
                 results["rewards"][idx] += dino_reward * rewards_dict['dino'] # Add to existing CLIP reward
                 results["dino_reward"][idx] = float(dino_reward)
     
     # Adjust rewards based on formatting - only give positive rewards if properly formatted
     for i in range(num_examples):
         if not results["formatted"][i] and  rewards_dict['format'] == 0:
-            results["rewards"][i] = 0.0
+            results["rewards"][i] = -offset
     
     return results
 

@@ -9,6 +9,8 @@ from typing import Any, List, Literal, Tuple, Dict
 @dataclass
 class ZeroSVGArgs(PPOArgs):
     # Template.
+    max_save_num: int = 500
+    max_save_mem: int = 100000
     prompt_template: Literal[ "r1", "r1_svg"] = field(default="r1")
     # Evaluation benchmarks used.
     test_split: str = ""  # Use "aime,math" to only evaluate on selected benchmarks.
@@ -20,7 +22,7 @@ class ZeroSVGArgs(PPOArgs):
     train_split_svg: str = "train"
     train_split_math: str = "train"
     entropy_coeff: float = 0.0
-    cliprange_high: float = 0.2
+    cliprange_high: float = 0.28
     cliprange_low: float = 0.2
     dapo_length_normalizer: bool = False
     adv_no_std: bool = False
@@ -31,6 +33,7 @@ class ZeroSVGArgs(PPOArgs):
     format_coeff: float = 0.0
     dino_model: str = "dino_small"
     clip_model: str = "clip_small"
+    reward_offset: float = 0.0
     
     
     # Verifier.

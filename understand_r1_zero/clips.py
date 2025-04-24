@@ -394,7 +394,7 @@ def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[
             image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
             
             # Compute similarities (dot product)
-            similarities = (torch.sum(text_embeddings * image_embeddings, dim=-1) + 1.0) / 2.0
+            similarities = torch.sum(text_embeddings * image_embeddings, dim=-1) 
             # Convert similarities to distances
             valid_distances = 1.0 - similarities
             
@@ -526,7 +526,7 @@ def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Unio
             # image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
             
             # Compute similarities (dot product)
-            similarities =(torch.sum(text_embeddings * image_embeddings, dim=-1) + 1.0) / 2.0
+            similarities =torch.sum(text_embeddings * image_embeddings, dim=-1) 
             
             # Convert similarities to distances
             valid_distances = 1.0 - similarities.cpu().numpy()
@@ -915,7 +915,7 @@ def dinov2_image_image_distances_batch(
                         ref_feat = ref_features[ref_position]
                         
                         # Calculate cosine distance (1 - cosine similarity)
-                        cosine_sim = (torch.sum(query_feat * ref_feat).item() + 1.0) / 2.0
+                        cosine_sim = torch.sum(query_feat * ref_feat).item() 
                         distances[query_idx] = 1.0 - cosine_sim
             except RuntimeError as e:
                 print(f"Error processing images in one batch: {e}")
@@ -1053,7 +1053,7 @@ def dinov2_image_image_patch_distances_batch(
                         # Compute pairwise cosine similarity between patches
                         similarity_matrix = torch.mm(query_patches, ref_patches.t())  # [num_query_patches, num_ref_patches]
                         softmax_similarities = F.softmax(similarity_matrix, dim=0)
-                        similarity_matrix = (similarity_matrix + 1.0) / 2.0
+                        
 
 
                         # Apply reduction method for each query patch

@@ -205,16 +205,28 @@ class ZeroSVGLearner(PPOLearner):
         # Prepare the data: templated questions & gt final answers.
         # prompts_data = prompts_data.map(self._apply_template)
         # print("prompts_data_apply_template", prompts_data[0])
+        
+        if self.args.prompt_data_svg == 'hq_svg':
+            self.prompts_dataset = PromptSVGDataset(
+                svg_prompts_data,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                output_key="svg",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
+        else:
 
-        self.prompts_dataset = PromptImageDataset(
-            svg_prompts_data,
-            tokenizer,
-            strategy,
-            input_key="solution",
-            output_key="image_path",
-            apply_chat_template=False,  # Because we have applied already.
-            get_reference=True,
-        )
+            self.prompts_dataset = PromptImageDataset(
+                svg_prompts_data,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                output_key="image_path",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
         # self.prompts_dataset = prompts_data
         self.prompts_dataloader = strategy.setup_dataloader(
             self.prompts_dataset,
@@ -227,35 +239,46 @@ class ZeroSVGLearner(PPOLearner):
         )
         
         
-        svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
-            "uwunion/instruct_svg", 
-            None, 
-            max_test_samples=100,
-        )['train']
+        # svg_eval_dataset = get_dataset_class("uwunion/instruct_svg")().load_dataset(
+        #     "uwunion/instruct_svg", 
+        #     None, 
+        #     max_test_samples=100,
+        # )['train']
         
         
-        svg_eval_dataset = PromptSVGDataset(
-            svg_eval_dataset,
-            tokenizer,
-            strategy,
-            input_key="solution",
-            output_key="svg",
-            apply_chat_template=False,  # Because we have applied already.
-            get_reference=True,
-        )
-        self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
-        svg_eval_dataset_coco = svg_prompt_dataset['test']
-        svg_eval_dataset_coco = PromptImageDataset(
-            svg_eval_dataset_coco,
-            tokenizer,
-            strategy,
-            input_key="solution",
-            output_key="image_path",
-            apply_chat_template=False,  # Because we have applied already.
-            get_reference=True,
-        )
-        # self.eval_svg_dataset_dict = {"coco":  svg_eval_dataset_coco }
-        self.eval_svg_dataset_dict["coco"] =  svg_eval_dataset_coco 
+        # svg_eval_dataset = PromptSVGDataset(
+        #     svg_eval_dataset,
+        #     tokenizer,
+        #     strategy,
+        #     input_key="solution",
+        #     output_key="svg",
+        #     apply_chat_template=False,  # Because we have applied already.
+        #     get_reference=True,
+        # )
+        # self.eval_svg_dataset_dict = {"instruct_svg":   svg_eval_dataset  }
+        svg_eval_dataset = svg_prompt_dataset['test']
+        if self.args.prompt_data_svg == 'hq_svg':
+            svg_eval_dataset = PromptSVGDataset(
+                svg_eval_dataset,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                output_key="svg",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
+        else:
+            svg_eval_dataset = PromptImageDataset(
+                svg_eval_dataset,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                output_key="image_path",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
+        self.eval_svg_dataset_dict = {self.args.prompt_data_svg:  svg_eval_dataset }
+        # self.eval_svg_dataset_dict["coco"] =  svg_eval_dataset_coco 
         
 
     def eval_math_dataloader_collate_fn(self, item_list):

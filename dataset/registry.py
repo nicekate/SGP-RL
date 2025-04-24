@@ -14,6 +14,7 @@ from .simple_object.dataset import SimpleObjectDataset
 from .simple_relation.dataset import SimpleRelationDataset
 from .coco_image.dataset import COCOImageDataset
 from .simplelr.dataset import SimplelrDataset
+from .haoquan_svg.dataset import HQSVGDataset
 from .reward import Reward, SVGReward, SVGImageReward, SVGRawImageReward
 
 # Registry for datasets
@@ -30,7 +31,8 @@ DATASETS = {
     "simple_object": SimpleObjectDataset,
     "simple_relation": SimpleRelationDataset,
     "coco_image": COCOImageDataset,
-    "simplelr": SimplelrDataset
+    "simplelr": SimplelrDataset,
+    "hq_svg": HQSVGDataset,
     # Add more datasets here
 }
 
