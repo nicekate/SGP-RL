@@ -830,7 +830,7 @@ def dinov2_image_image_distances_batch(
     reference_images: Union[Image.Image, List[Image.Image]], 
     query_images: Union[Image.Image, List[Image.Image]], 
     model_name="dinov2_vits14",
-    device=None
+    device=None, return_features=False
 ) -> Union[float, List[float]]:
     """
     Computes the feature distance between reference images and query images using DinoV2 features.
@@ -889,7 +889,7 @@ def dinov2_image_image_distances_batch(
     
     # Initialize distances with default value (1.0 means maximum distance)
     distances = [1.0] * len(reference_images)
-    
+    return_features = [None] * len(reference_images)
     # Only process if we have valid images in both sets
     if valid_ref_images and valid_query_images:
         with torch.no_grad():
@@ -909,6 +909,7 @@ def dinov2_image_image_distances_batch(
                 # Get features for corresponding pairs and compute distances
                 for i, query_idx in enumerate(valid_query_indices):
                     ref_position = valid_ref_indices.index(query_idx) if query_idx in valid_ref_indices else -1
+                    return_features[query_idx] = query_features[i]
                     if ref_position >= 0:
                         # Extract features for this specific pair
                         query_feat = query_features[i]
@@ -917,6 +918,7 @@ def dinov2_image_image_distances_batch(
                         # Calculate cosine distance (1 - cosine similarity)
                         cosine_sim = torch.sum(query_feat * ref_feat).item() 
                         distances[query_idx] = 1.0 - cosine_sim
+                        
             except RuntimeError as e:
                 print(f"Error processing images in one batch: {e}")
                 print("Consider processing in smaller batches for large datasets")
@@ -925,7 +927,8 @@ def dinov2_image_image_distances_batch(
     # Return single value if both inputs were single items
     if single_reference and single_query and len(distances) == 1:
         return distances[0]
-    
+    if return_features:
+        return distances, return_features
     return distances
 
 

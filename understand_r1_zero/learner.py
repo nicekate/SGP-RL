@@ -118,12 +118,12 @@ class ZeroSVGLearner(PPOLearner):
         self.collector = FlexFeedbackCollector(
                     args, actors, PlasmaShmClient(self.ipc_server)
                 )
-        self.eval_math_dataset_dict = load_from_disk(args.eval_data)  # TODO: get fro HF.
+        # self.eval_math_dataset_dict = load_from_disk(args.eval_data)  # TODO: get fro HF.
         
-        if args.test_split != "all":
-            self.eval_math_dataset_dict = {
-                k: v for k, v in self.eval_math_dataset_dict.items() if k in args.test_split
-            }
+        # if args.test_split != "all":
+        #     self.eval_math_dataset_dict = {
+        #         k: v for k, v in self.eval_math_dataset_dict.items() if k in args.test_split
+        #     }
         self.args = args
         # Dr. GRPO Modification 1: Remove length bias by using masked_sum with a constant normalizer:
         self.masked_aggregator = (
@@ -187,19 +187,20 @@ class ZeroSVGLearner(PPOLearner):
         return example
 
     def prepare_data(self, strategy, tokenizer):
+        
         svg_prompt_dataset = get_dataset_class(self.args.prompt_data_svg)().load_dataset(
             self.args.prompt_data_svg, 
             None, 
             max_train_samples=self.args.max_train_svg,
             max_test_samples=500,
         )
-        math_prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data_math)
+        # math_prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data_math)
         
         # prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data)
         svg_prompts_data = svg_prompt_dataset[self.args.train_split_svg]
-        math_prompts_data = math_prompt_dataset[self.args.train_split_math].select(
-            range(min(self.args.max_train_math, len(math_prompt_dataset[self.args.train_split_math])))
-        )
+        # math_prompts_data = math_prompt_dataset[self.args.train_split_math].select(
+        #     range(min(self.args.max_train_math, len(math_prompt_dataset[self.args.train_split_math])))
+        # )
         
         
         # Prepare the data: templated questions & gt final answers.
@@ -278,7 +279,7 @@ class ZeroSVGLearner(PPOLearner):
                 get_reference=True,
             )
         self.eval_svg_dataset_dict = {self.args.prompt_data_svg:  svg_eval_dataset }
-        # self.eval_svg_dataset_dict["coco"] =  svg_eval_dataset_coco 
+    
         
 
     def eval_math_dataloader_collate_fn(self, item_list):
