@@ -16,7 +16,7 @@ python train_zero_svg.py \
     --beta 0 \
     --oracle_type reward \
     --oracle svg \
-    --pretrain Qwen/Qwen2.5-3B \
+    --pretrain Qwen/Qwen2.5-1.5B \
     --prompt_template r1_svg \
     --zero-stage 2 \
     --ref_offload \
@@ -48,7 +48,7 @@ python train_zero_svg.py \
     --eval_input_key input \
     --use-wb \
     --wb_project svg-ablations \
-    --wb-run-name scale_base_3B \
+    --wb-run-name scale_base_1.5B \
     --clip_model clip_small \
     --dino_model dino_small
 

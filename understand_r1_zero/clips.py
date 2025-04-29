@@ -61,6 +61,55 @@ def get_siglip_model(model_name="google/siglip-large-patch16-384", device=None):
     
     return _siglip_models[model_key]
 
+
+_siglip2_models = {}
+
+@lru_cache(maxsize=300)
+def get_siglip2_model(model_name="google/siglip-large-patch16-384", device=None):
+    """Get SigLIP model in a distributed-friendly way
+    
+    Args:
+        model_name (str): The SigLIP model to load from Hugging Face:
+            - "google/siglip-base-patch16-224" (base)
+            - "google/siglip-large-patch16-384" (large)
+        device: The device to load the model on
+        
+    Returns:
+        tuple: (model, processor) for feature extraction
+    """
+    from transformers import SiglipImageProcessor, SiglipModel, SiglipTokenizer
+    
+    # Get local process info
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    
+    if device is None:
+        # Default to CPU for prediction to avoid CUDA synchronization issues
+        device = "cpu"
+    
+    # Create a unique key for this process, model and device
+    model_key = f"{local_rank}_{model_name}_{device}"
+    
+    if model_key not in _siglip_models:
+        try:
+            logging.info(f"Loading SigLIP model {model_name} on device {device}")
+            # Load model and processor from Hugging Face
+            processor = SiglipImageProcessor.from_pretrained(model_name)
+            model = SiglipModel.from_pretrained(model_name).to(device).eval()
+            tokenizer = SiglipTokenizer.from_pretrained(model_name)
+            
+            # Freeze parameters to ensure we're only doing inference
+            for param in model.parameters():
+                param.requires_grad = False
+                
+            _siglip_models[model_key] = (model, processor, tokenizer)
+            
+        except Exception as e:
+            raise ValueError(f"Error loading SigLIP model {model_name}: {e}")
+    
+    return _siglip_models[model_key]
+
+
+
 # Cache for MAE models
 _mae_models = {}
 
@@ -542,6 +591,102 @@ def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Unio
     
     return batch_distances
 
+
+def siglip2_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], model=None, processor=None, tokenizer=None, model_name="google/siglip2-large-patch16-384", device=None) -> Union[float, List[float]]:
+    """
+    Computes the cosine distance between texts and images using SigLIP embeddings in batch mode.
+    
+    Args:
+        texts: Either a single text string or a list of text strings.
+        images: Either a single PIL Image or a list of PIL Images.
+        model: Pre-loaded SigLIP model (optional)
+        processor: Pre-loaded SigLIP processor (optional) 
+        tokenizer: Pre-loaded SigLIP tokenizer (optional)
+        model_name: SigLIP model to use ("google/siglip-base-patch16-224" or "google/siglip-large-patch16-224")
+        device: Device to run the model on.
+    
+    Returns:
+        If both inputs are single items: a float representing the distance
+        If either input is a list: a list of distances
+    """
+    # Handle single inputs
+    single_text = isinstance(texts, str)
+    single_image = isinstance(images, Image.Image)
+    
+    if single_text:
+        texts = [texts]
+    if single_image:
+        images = [images]
+    
+    # Determine device
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    
+    if device is None:
+        device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+    print(f"siglip_text_image_distance_batch: device: {device}")
+    
+    # Get model and processor if not provided
+    if model is None or processor is None or tokenizer is None:
+        model, processor, tokenizer = get_siglip2_model(model_name=model_name, device=device)
+    
+    # Keep track of None images
+    valid_indices = []
+    valid_images = []
+    for i, img in enumerate(images):
+        if img is not None:
+            valid_indices.append(i)
+            valid_images.append(prepare_image(img))
+    
+    # Initialize distances with ones (maximum distance for None images)
+    batch_distances = [1.0] * len(texts)
+    
+    # Only process if we have valid images
+    if valid_images:
+        with torch.no_grad():
+            # Process text batch - only for valid indices
+            valid_texts = [str(texts[i]) for i in valid_indices]  # Ensure all are strings
+            
+            # Process texts with explicit parameters
+            text_inputs = tokenizer(
+                valid_texts,
+                padding="max_length",
+                truncation=True,  # Add truncation
+                return_tensors="pt",
+                max_length=64
+            )
+            text_inputs = {k: v.to(device) for k, v in text_inputs.items()}
+            
+            # Process images
+            image_inputs = processor(
+                images=valid_images,
+                return_tensors="pt",
+            )
+            image_inputs = {k: v.to(device) for k, v in image_inputs.items()}
+            
+            # Extract features
+            text_embeddings = model.get_text_features(**text_inputs)
+            image_embeddings = model.get_image_features(**image_inputs)
+            
+            # Normalize embeddings
+            text_embeddings = text_embeddings / text_embeddings.norm(dim=-1, keepdim=True)
+            image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
+            
+            # Compute similarities (dot product)
+            similarities = torch.sum(text_embeddings * image_embeddings, dim=-1) 
+            
+            # Convert similarities to distances
+            valid_distances = 1.0 - similarities.cpu().numpy()
+            
+            # Update distances for valid indices
+            for idx, valid_idx in enumerate(valid_indices):
+                batch_distances[valid_idx] = valid_distances[idx]
+    
+    # Return single value if both inputs were single items
+    if single_text and single_image and len(batch_distances) == 1:
+        return batch_distances[0]
+    
+    return batch_distances
+
 def clip_image_image_distances_batch(
     reference_images: Union[Image.Image, List[Image.Image]], 
     query_images: Union[Image.Image, List[Image.Image]], 
@@ -889,7 +1034,7 @@ def dinov2_image_image_distances_batch(
     
     # Initialize distances with default value (1.0 means maximum distance)
     distances = [1.0] * len(reference_images)
-    return_features = [None] * len(reference_images)
+    to_return_features = [None] * len(reference_images)
     # Only process if we have valid images in both sets
     if valid_ref_images and valid_query_images:
         with torch.no_grad():
@@ -909,7 +1054,7 @@ def dinov2_image_image_distances_batch(
                 # Get features for corresponding pairs and compute distances
                 for i, query_idx in enumerate(valid_query_indices):
                     ref_position = valid_ref_indices.index(query_idx) if query_idx in valid_ref_indices else -1
-                    return_features[query_idx] = query_features[i]
+                    to_return_features[query_idx] = query_features[i]
                     if ref_position >= 0:
                         # Extract features for this specific pair
                         query_feat = query_features[i]
@@ -928,7 +1073,7 @@ def dinov2_image_image_distances_batch(
     if single_reference and single_query and len(distances) == 1:
         return distances[0]
     if return_features:
-        return distances, return_features
+        return distances, to_return_features
     return distances
 
 

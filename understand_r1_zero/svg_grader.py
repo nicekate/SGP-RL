@@ -1,7 +1,7 @@
 from .clips import (clip_text_image_distances_batch,
                     dinov2_image_image_distances_batch,
                     dinov2_image_image_patch_distances_batch,
-                    siglip_text_image_distances_batch,)
+                    siglip_text_image_distances_batch,siglip2_text_image_distances_batch)
 from .svg import (extract_svg, safe_svg_to_image, get_svg_code_length)
 from functools import partial
 
@@ -11,7 +11,9 @@ clip_name_dict = {
     "clip": clip_text_image_distances_batch,
     "clip_small": partial(clip_text_image_distances_batch, model_name = "ViT-B/32"),
     "clip_large": partial(clip_text_image_distances_batch, model_name = "ViT-L/14"),
-    "siglip": siglip_text_image_distances_batch}
+    "siglip": siglip_text_image_distances_batch,
+    "siglip2_giant": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-giant-opt-patch16-384"),
+    "siglip2_large": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-large-patch16-384"),}
 
 dino_name_dict = {
     "dino": dinov2_image_image_distances_batch,

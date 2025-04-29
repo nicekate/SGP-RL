@@ -73,7 +73,7 @@ from oat.interface import get_program, lp
 from oat.oracles.base import PreferenceOracleBase, RewardOracleBase
 from oat.types import Metric, TrajectoryData
 from oat.utils.data import load_data_from_disk_or_hf
-from understand_r1_zero.dataset import PromptImageDataset, PromptSVGDataset
+from understand_r1_zero.dataset import PromptImageDataset, PromptSVGDataset, PromptImageSVGDataset
 from dataset.registry import get_dataset_class
 
 from oat.utils.ops import masked_mean, masked_sum
@@ -217,6 +217,15 @@ class ZeroSVGLearner(PPOLearner):
                 apply_chat_template=False,  # Because we have applied already.
                 get_reference=True,
             )
+        elif self.args.prompt_data_svg == 'coco_mix':
+            self.prompts_dataset = PromptImageSVGDataset(
+                svg_prompts_data,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
         else:
 
             self.prompts_dataset = PromptImageDataset(
@@ -265,6 +274,15 @@ class ZeroSVGLearner(PPOLearner):
                 strategy,
                 input_key="solution",
                 output_key="svg",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
+        elif self.args.prompt_data_svg == 'coco_mix':
+            svg_eval_dataset = PromptImageSVGDataset(
+                svg_eval_dataset,
+                tokenizer,
+                strategy,
+                input_key="solution",
                 apply_chat_template=False,  # Because we have applied already.
                 get_reference=True,
             )

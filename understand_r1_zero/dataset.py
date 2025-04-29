@@ -170,66 +170,114 @@ class PromptSVGDataset(Dataset):
             )
         return self.processed_prompts[idx], self.raw_prompts[idx]
 
+class PromptImageSVGDataset(Dataset):
+    """
+    Dataset for processing prompts that can handle both image paths (COCO) 
+    and SVG code (HaoQuan SVG) based on the source.
+    """
 
+    def __init__(
+        self,
+        dataset,
+        tokenizer,
+        strategy,
+        input_key,
+        output_key=None,
+        svg_key="svg",
+        image_path_key="image_path",
+        dataset_source_key="dataset_source",
+        apply_chat_template=False,
+        get_reference=False,
+    ) -> None:
+        super().__init__()
+        self.strategy = strategy
+        self.tokenizer = tokenizer
+        self.get_reference = get_reference
+        self.prompt_max_length = strategy.args.prompt_max_length
 
-# class PromptMixDataset(Dataset):
-#     """Dataset for processing prompts."""
+        if apply_chat_template:
+            apply_chat_template = self.tokenizer.apply_chat_template
+        # if get_reference:
+        #     assert output_key is not None
 
-#     def __init__(
-#         self,
-#         dataset_dict,
-#         mixture_ratio_dict,
-#         tokenizer,
-#         strategy,
-#         input_key_dict,
-#         output_key_dict,
-#         apply_chat_template=False,
-#     ) -> None:
-#         super().__init__()
-#         assert dataset_dict.keys() == mixture_ratio_dict.keys() == input_key_dict.keys() == output_key_dict.keys()
-#         self.strategy = strategy
-#         self.tokenizer = tokenizer
-#         self.get_reference = True
-#         self.prompt_max_length = strategy.args.prompt_max_length
+        self.raw_prompts = []
+        self.processed_prompts = []
+        self.references = []
+        self.data_sources = []  # Track source (coco or svg)
 
-#         if apply_chat_template:
-#             apply_chat_template = self.tokenizer.apply_chat_template
-        
+        def preprocess_data(data, input_key="input", apply_chat_template=None) -> tuple:
+            if apply_chat_template:
+                prompt = apply_chat_template(
+                    [{"content": data[input_key], "role": "user"}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            else:
+                prompt = data["prompt"]
+                
+            # Determine data source
+            data_source = data.get(dataset_source_key, None)
+            
+            # If source isn't explicitly labeled, infer from fields
+            if data_source is None:
+                if data.get(svg_key) is not None:
+                    data_source = "svg"
+                elif data.get(image_path_key) is not None:
+                    data_source = "coco"
+                else:
+                    raise ValueError(f"Cannot determine data source for entry: {data}")
+                
+            # Get reference based on source
+            if data_source == "svg":
+                reference = data.get(svg_key)
+            else:  # coco
+                reference = data.get(image_path_key)
+                
+            return data[input_key], prompt, reference, data_source
 
-#         self.raw_prompts = {k:[] for k in dataset_dict.keys()}   
-#         self.processed_prompts = {k:[] for k in dataset_dict.keys()}  
-#         self.references_math = {k:[] for k in dataset_dict.keys()}  
-#         def preprocess_data(data, input_key="input", output_key = "output") -> str:
-#             if apply_chat_template:
-#                 prompt = apply_chat_template(
-#                     [{"content": data[input_key], "role": "user"}],
-#                     tokenize=False,
-#                     add_generation_prompt=True,
-#                 )
-#             else:
-#                 prompt = data["prompt"]
-#             return data[input_key], prompt, data[output_key]
-#         for k in dataset_dict.keys():
-#             for data in tqdm(dataset_dict[k], disable=not self.strategy.is_rank_0()):
-#                 # print(data)
-#                 prompt, processed_prompt, reference = preprocess_data(
-#                     data, input_key_dict[k], apply_chat_template
-#                 )
-#                 if len(tokenizer(processed_prompt)["input_ids"]) <= self.prompt_max_length:
-#                     self.processed_prompts[k].append(processed_prompt)
-#                     self.raw_prompts[k].append(prompt)
-#                     if self.get_reference:
-#                         self.references[k].append(reference)
+        for data in tqdm(dataset, disable=not self.strategy.is_rank_0()):
+            prompt, processed_prompt, reference, data_source = preprocess_data(
+                data, input_key, apply_chat_template
+            )
+            
+            if len(tokenizer(processed_prompt)["input_ids"]) <= self.prompt_max_length:
+                self.processed_prompts.append(processed_prompt)
+                self.raw_prompts.append(prompt)
+                if self.get_reference:
+                    self.references.append(reference)
+                    self.data_sources.append(data_source)
                     
+        print(f"Dataset loaded with {len(self.raw_prompts)} entries "
+              f"({sum(1 for s in self.data_sources if s == 'coco')} COCO, "
+              f"{sum(1 for s in self.data_sources if s == 'svg')} SVG)")
 
-#     def __len__(self):
-#         return len(self.raw_prompts)
+    def __len__(self):
+        return len(self.raw_prompts)
 
-#     def __getitem__(self, idx):
-#         if self.get_reference:
-#             return (
-#                 self.processed_prompts[idx],
-#                 self.raw_prompts[idx],
-#                 image_transform(Image.open(self.references[idx]).convert('RGB')),
-#             )
-#         return self.processed_prompts[idx], self.raw_prompts[idx]
+    def __getitem__(self, idx):
+        if not self.get_reference:
+            return self.processed_prompts[idx], self.raw_prompts[idx]
+            
+        # Process based on data source
+        if self.data_sources[idx] == "svg":
+            # For SVG: Render SVG code to image
+            try:
+                image = render_svg_to_image(self.references[idx])
+                if image is None:
+                    # Fallback to an empty image if rendering fails
+                    image = Image.new('RGB', (224, 224), color=(255, 255, 255))
+                transformed_image = image_transform(image)
+            except Exception as e:
+                print(f"Error rendering SVG at index {idx}: {e}")
+                transformed_image = image_transform(Image.new('RGB', (224, 224), color=(255, 255, 255)))
+        else:
+            # For COCO: Load image from disk
+            try:
+                image = Image.open(self.references[idx]).convert('RGB')
+                transformed_image = image_transform(image)
+            except Exception as e:
+                print(f"Error loading image at {self.references[idx]}: {e}")
+                transformed_image = image_transform(Image.new('RGB', (224, 224), color=(255, 255, 255)))
+                
+        return self.processed_prompts[idx], self.raw_prompts[idx], transformed_image
+

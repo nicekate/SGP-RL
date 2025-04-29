@@ -179,8 +179,8 @@ def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_p
     # Initialize models
     clip_models = models_dict.get('clip', [])
     dino_models = models_dict.get('dino', [])
-    clip_model_fns = [clip_name_dict[model_name] for model_name in clip_models if model_name in clip_name_dict]
-    dino_model_fns = [dino_name_dict[model_name] for model_name in dino_models if model_name in dino_name_dict]
+    clip_model_fns = [clip_name_dict[reward_model_name] for reward_model_name in clip_models if reward_model_name in clip_name_dict]
+    dino_model_fns = [dino_name_dict[reward_model_name] for reward_model_name in dino_models if reward_model_name in dino_name_dict]
     
     # Step 1: Render all SVGs for all prompts (in batches if needed)
     all_rendered_images = []  # Will be a flattened list
@@ -388,12 +388,12 @@ def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_p
             
             for sample in prompt_data["samples"]:
                 # Handle CLIP rewards - convert tensor to float if needed
-                for model_name in results["model_specific_rewards"].keys():
-                    if model_name in sample:
-                        value = sample[model_name]
+                for reward_model_name in results["model_specific_rewards"].keys():
+                    if reward_model_name in sample:
+                        value = sample[reward_model_name]
                         if isinstance(value, torch.Tensor):
                             value = value.cpu().item()
-                        model_specific_sums[model_name].append(value) 
+                        model_specific_sums[reward_model_name].append(value) 
                         
             
                 if isinstance(sample["clip_reward"], torch.Tensor):
@@ -426,8 +426,8 @@ def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_p
     
     
     
-    for model_name in results["model_specific_rewards"]:
-        results["model_specific_rewards"][model_name] = np.sum(model_specific_sums[model_name]) if model_specific_sums[model_name] else 0.0
+    for reward_model_name in results["model_specific_rewards"]:
+        results["model_specific_rewards"][reward_model_name] = np.sum(model_specific_sums[reward_model_name]) if model_specific_sums[reward_model_name] else 0.0
         
     
     
@@ -940,9 +940,9 @@ def main_multigpus(
                         task_accumulated_results["avg_dino_reward"] += batch_results["sum_dino_reward"] 
                         task_accumulated_results["avg_diversity"] += batch_results["sum_diversity"]
                         
-                        for model_name, score in batch_results["model_specific_rewards"].items():
-                            if model_name in task_accumulated_results["model_specific_rewards"]:
-                                task_accumulated_results["model_specific_rewards"][model_name] += score
+                        for reward_model_name, score in batch_results["model_specific_rewards"].items():
+                            if reward_model_name in task_accumulated_results["model_specific_rewards"]:
+                                task_accumulated_results["model_specific_rewards"][reward_model_name] += score
                     
                     completed_batches += 1
                     pbar.update(1)
@@ -1006,8 +1006,8 @@ def main_multigpus(
             task_accumulated_results["avg_diversity"] /= task_accumulated_results["total_count"]
             
             # Average per-model metrics
-            for model_name in task_accumulated_results["model_specific_rewards"]:
-                task_accumulated_results["model_specific_rewards"][model_name] /= task_accumulated_results["total_count"]
+            for reward_model_name in task_accumulated_results["model_specific_rewards"]:
+                task_accumulated_results["model_specific_rewards"][reward_model_name] /= task_accumulated_results["total_count"]
         
         # Calculate overall success rate
         task_accumulated_results["overall_success_rate"] = (
@@ -1030,10 +1030,10 @@ def main_multigpus(
         print("\nPer-model metrics for this task:")
         for model_type, model_list in models_dict.items():
             print(f"  {model_type.upper()} models:")
-            for model_name in model_list:
-                if model_name in task_accumulated_results["model_specific_rewards"]:
-                    score = task_accumulated_results["model_specific_rewards"][model_name]
-                    print(f"    - {model_name}: {score:.4f}")
+            for reward_model_name in model_list:
+                if reward_model_name in task_accumulated_results["model_specific_rewards"]:
+                    score = task_accumulated_results["model_specific_rewards"][reward_model_name]
+                    print(f"    - {reward_model_name}: {score:.4f}")
     
     # Calculate overall metrics across tasks
     overall_results = {
@@ -1068,9 +1068,9 @@ def main_multigpus(
         overall_results["total_count"] += task_result["total_count"]
         
         # Aggregate per-model metrics
-        for model_name, score in task_result["model_specific_rewards"].items():
-            if model_name in overall_results["model_specific_rewards"]:
-                overall_results["model_specific_rewards"][model_name] += score
+        for reward_model_name, score in task_result["model_specific_rewards"].items():
+            if reward_model_name in overall_results["model_specific_rewards"]:
+                overall_results["model_specific_rewards"][reward_model_name] += score
     
     # Calculate overall averages
     task_count = len(task_results)
@@ -1080,8 +1080,8 @@ def main_multigpus(
         overall_results["avg_diversity"] /= task_count
         
         # Average per-model metrics
-        for model_name in overall_results["model_specific_rewards"]:
-            overall_results["model_specific_rewards"][model_name] /= task_count
+        for reward_model_name in overall_results["model_specific_rewards"]:
+            overall_results["model_specific_rewards"][reward_model_name] /= task_count
         
         overall_results["overall_success_rate"] = (
             overall_results["valid_count"] / overall_results["total_count"]
@@ -1099,10 +1099,10 @@ def main_multigpus(
     print("\nPer-model metrics across all tasks:")
     for model_type, model_list in models_dict.items():
         print(f"  {model_type.upper()} models:")
-        for model_name in model_list:
-            if model_name in overall_results["model_specific_rewards"]:
-                score = overall_results["model_specific_rewards"][model_name]
-                print(f"    - {model_name}: {score:.4f}")
+        for reward_model_name in model_list:
+            if reward_model_name in overall_results["model_specific_rewards"]:
+                score = overall_results["model_specific_rewards"][reward_model_name]
+                print(f"    - {reward_model_name}: {score:.4f}")
     
     # Save detailed results if requested
     if save:
