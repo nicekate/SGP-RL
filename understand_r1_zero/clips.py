@@ -62,51 +62,6 @@ def get_siglip_model(model_name="google/siglip-large-patch16-384", device=None):
     return _siglip_models[model_key]
 
 
-_siglip2_models = {}
-
-@lru_cache(maxsize=300)
-def get_siglip2_model(model_name="google/siglip-large-patch16-384", device=None):
-    """Get SigLIP model in a distributed-friendly way
-    
-    Args:
-        model_name (str): The SigLIP model to load from Hugging Face:
-            - "google/siglip-base-patch16-224" (base)
-            - "google/siglip-large-patch16-384" (large)
-        device: The device to load the model on
-        
-    Returns:
-        tuple: (model, processor) for feature extraction
-    """
-    from transformers import SiglipImageProcessor, SiglipModel, SiglipTokenizer
-    
-    # Get local process info
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    
-    if device is None:
-        # Default to CPU for prediction to avoid CUDA synchronization issues
-        device = "cpu"
-    
-    # Create a unique key for this process, model and device
-    model_key = f"{local_rank}_{model_name}_{device}"
-    
-    if model_key not in _siglip_models:
-        try:
-            logging.info(f"Loading SigLIP model {model_name} on device {device}")
-            # Load model and processor from Hugging Face
-            processor = SiglipImageProcessor.from_pretrained(model_name)
-            model = SiglipModel.from_pretrained(model_name).to(device).eval()
-            tokenizer = SiglipTokenizer.from_pretrained(model_name)
-            
-            # Freeze parameters to ensure we're only doing inference
-            for param in model.parameters():
-                param.requires_grad = False
-                
-            _siglip_models[model_key] = (model, processor, tokenizer)
-            
-        except Exception as e:
-            raise ValueError(f"Error loading SigLIP model {model_name}: {e}")
-    
-    return _siglip_models[model_key]
 
 
 
@@ -627,7 +582,7 @@ def siglip2_text_image_distances_batch(texts: Union[str, List[str]], images: Uni
     
     # Get model and processor if not provided
     if model is None or processor is None or tokenizer is None:
-        model, processor, tokenizer = get_siglip2_model(model_name=model_name, device=device)
+        model, processor, tokenizer = get_siglip_model(model_name=model_name, device=device)
     
     # Keep track of None images
     valid_indices = []

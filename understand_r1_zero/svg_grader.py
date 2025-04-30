@@ -51,6 +51,10 @@ def is_format_correct(response):
 def no_text_in_response(response):
     if "</text>" in response:
         return False
+    if "</tspan>" in response:
+        return False
+    if "</textPath>" in response:
+        return False
     return True
 
 def render_response_to_image(response):

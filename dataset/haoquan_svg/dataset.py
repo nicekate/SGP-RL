@@ -21,11 +21,12 @@ class HQSVGDataset:
         dataset_name: str,
         dataset_config: Optional[Dict[str, Any]] = None,
         dataset_path: str="/home/chenyamei/data/haoquan_svg/svg-gen-70k.jsonl",
-        test_split_ratio: float = 0.2,  # Changed default from 0.1 to 0.2 for 80/20 split
+        test_split_ratio: float = 0.1,  
         max_train_samples: Optional[int] = -1,
         max_test_samples: Optional[int] = -1,
         filter_successful_only: bool = True,
         filter_has_description: bool = True,
+        filter_text_content: bool = True, 
         complexity_threshold: Optional[float] = None,
         seed: int = 42,  # Added seed parameter for reproducibility
         **kwargs
@@ -65,6 +66,19 @@ class HQSVGDataset:
             dataset['train'] = dataset['train'].filter(
                 lambda example: example.get('description', '') 
             )
+         # Filter out text-related content
+        if filter_text_content:
+            # Define terms to filter out
+            text_terms = ['text', 'letter', 'character', '"', "sorry", "symbol", "Symbol", "represent"]
+            
+            # Filter function that excludes examples containing any of these terms
+            def filter_text_related(example):
+                description = example.get('description', '').lower()
+                return not any(term in description.lower() for term in text_terms)
+            
+            # Apply filter
+            dataset['train'] = dataset['train'].filter(filter_text_related)
+            print(f"After filtering out text-related content: {len(dataset['train'])} examples")
         
         if complexity_threshold is not None:
             dataset['train'] = dataset['train'].filter(
