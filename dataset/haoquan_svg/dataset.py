@@ -69,7 +69,7 @@ class HQSVGDataset:
          # Filter out text-related content
         if filter_text_content:
             # Define terms to filter out
-            text_terms = ['text', 'letter', 'character', '"', "sorry", "symbol", "Symbol", "represent"]
+            text_terms = ['text', 'letter', 'character', '"', "sorry", "symbol", "Symbol"]
             
             # Filter function that excludes examples containing any of these terms
             def filter_text_related(example):

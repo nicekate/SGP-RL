@@ -475,8 +475,10 @@ def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Unio
             text_inputs = tokenizer(
                     valid_texts,
                     padding="max_length",
+                    truncation=True,  # Add truncation
                     return_tensors="pt",
-                )
+                    max_length=64
+                    )
             text_inputs = {k: v.to(device) for k, v in text_inputs.items()}
             image_inputs = processor(
                     images=valid_images,
