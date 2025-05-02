@@ -49,7 +49,8 @@ class ZeroSVGActor(PPOActor):
         reward_models_dict = {"clip": args.clip_model,
                               "dino": args.dino_model}
         self.svg_oracle = SVGOracle(rewards_dict = rewards_dict, 
-                                   models_dict = reward_models_dict,offset = args.reward_offset,)
+                                   models_dict = reward_models_dict,offset = args.reward_offset,
+                                   args = args)
         self.svg_eval_oracle = SVGEvalOracle()
 
         # if args.prompt_template in ["qwen_math", "no"]:

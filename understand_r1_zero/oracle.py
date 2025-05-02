@@ -15,11 +15,11 @@ from .svg_grader import answer_tag_reward_fn, calculate_eval_rewards
 class SVGOracle(RewardOracleBase, PreferenceOracleBase):
     """Defines the verification rules for SVG generation."""
 
-    def __init__(self, rewards_dict, models_dict, offset) -> None:
+    def __init__(self, rewards_dict, models_dict, offset, args) -> None:
         super().__init__()
         self.svg_reward_fn = answer_tag_reward_fn
         self.svg_reward_fn = functools.partial(
-            self.svg_reward_fn, rewards_dict=rewards_dict, models_dict=models_dict, offset = offset
+            self.svg_reward_fn, rewards_dict=rewards_dict, models_dict=models_dict, offset = offset, args = args
         )
         # Process pool is used to enable the timeout mechanism for answer grading in our distributed training setup.
         self.mp_pool = Pool(2)

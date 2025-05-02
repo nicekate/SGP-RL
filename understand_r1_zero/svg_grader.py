@@ -2,7 +2,7 @@ from .clips import (clip_text_image_distances_batch,
                     dinov2_image_image_distances_batch,
                     dinov2_image_image_patch_distances_batch,
                     siglip_text_image_distances_batch,siglip2_text_image_distances_batch)
-from .svg import (extract_svg, safe_svg_to_image, get_svg_code_length)
+from .svg import (extract_svg, safe_svg_to_image, get_svg_code_length, is_sketch_style, is_greyscale)
 from functools import partial
 
 
@@ -12,6 +12,8 @@ clip_name_dict = {
     "clip_small": partial(clip_text_image_distances_batch, model_name = "ViT-B/32"),
     "clip_large": partial(clip_text_image_distances_batch, model_name = "ViT-L/14"),
     "siglip": siglip_text_image_distances_batch,
+    "siglip_small": partial(siglip_text_image_distances_batch, model_name = "google/siglip-base-patch16-384"),
+    "siglip_large": partial(siglip_text_image_distances_batch, model_name = "google/siglip-large-patch16-384"),
     "siglip2_giant": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-giant-opt-patch16-384"),
     "siglip2_large": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-large-patch16-384"),}
 
@@ -57,7 +59,8 @@ def no_text_in_response(response):
         return False
     return True
 
-def render_response_to_image(response):
+
+def render_response_to_image(response, args=None):
     """
     Extract SVG from a response and render it to an image.
     
@@ -72,6 +75,8 @@ def render_response_to_image(response):
     info = {"success": False, "formatted": False}
     
     # Check for proper format with <think>/<answer> tags
+    
+    
     if is_format_correct(response) and no_text_in_response(response):
         info["formatted"] = True
         # Extract content between <answer> tags
@@ -87,9 +92,19 @@ def render_response_to_image(response):
     if not svg_content:
         info["error"] = "No SVG found in answer"
         return None, info
+    if args.require_sketch:
+        if not is_sketch_style(svg_content):
+            info["error"] = "Not a sketch style SVG"
+            return None, info
+    if args.require_greystyle:
+        if not is_greyscale(svg_content):
+            info["error"] = "Not a grayscale SVG"
+            return None, info
     
     try:
+        
         image = safe_svg_to_image(svg_content)
+        
         
         if image is None:
             info["error"] = "Failed to render SVG"
@@ -106,7 +121,7 @@ def render_response_to_image(response):
     
     
 
-def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0, 'format':0}, models_dict = {'clip': 'clip', 'dino': 'dino'}, offset = 0.0):
+def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {'clip':1, 'dino':1, 'length':0, 'format':0}, models_dict = {'clip': 'clip', 'dino': 'dino'}, offset = 0.0, args = None):
     """
     Calculate rewards for SVG responses based on text-image and image-image similarity,
     enforcing the proper format structure with <think>/<answer> tags.
@@ -140,13 +155,14 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
     # Step 1: Check format and extract SVG content
     for i, response in enumerate(model_responses):
         
-        rendered_image, info = render_response_to_image(response)
+        rendered_image, info = render_response_to_image(response, args)
         results["rendered_images"][i] = rendered_image
         results["svg_info"][i] = info
         results["formatted"][i] = info.get("formatted", False)
         if info["success"]:
                 
             results["length_reward"][i] = rewards_dict['length'] * length_penalty(info["length"])
+            
             results["rewards"][i] += results["length_reward"][i]
             if results["formatted"][i]:
                 results["rewards"][i] += rewards_dict['format']

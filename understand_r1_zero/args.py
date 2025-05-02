@@ -34,6 +34,9 @@ class ZeroSVGArgs(PPOArgs):
     dino_model: str = "dino_small"
     clip_model: str = "clip_small"
     reward_offset: float = 0.0
+    prompt_type: str = "normal"
+    require_greystyle: bool = False
+    require_sketch: bool = False
     
     
     # Verifier.

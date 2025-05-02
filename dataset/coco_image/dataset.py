@@ -31,6 +31,7 @@ class COCOImageDataset:
         dataset_config: Optional[Dict[str, Any]] = None,
         max_train_samples: Optional[int] = -1,
         max_test_samples: Optional[int] = -1,
+        instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:",
         **kwargs
     ) -> Union[Dataset, IterableDataset]:
         """
@@ -56,8 +57,9 @@ class COCOImageDataset:
             val_dataset = val_dataset.select(range(min(max_test_samples, len(val_dataset))))
         
         # Apply basic processing WITHOUT loading images
-        train_dataset = train_dataset.map(COCOImageDataset.process_example_metadata)
-        val_dataset = val_dataset.map(COCOImageDataset.process_example_metadata)
+        process_with_prompt = lambda x: COCOImageDataset.process_example_metadata(x, instruction_prompt)
+        train_dataset = train_dataset.map(process_with_prompt)
+        val_dataset = val_dataset.map(process_with_prompt)
         
         # Set load_image function as format
         # train_dataset.set_transform(COCOImageDataset.load_image_transform)
@@ -101,14 +103,14 @@ class COCOImageDataset:
         return Dataset.from_pandas(df)
     
     @staticmethod
-    def process_example_metadata(example: Dict[str, Any]) -> Dict[str, Any]:
+    def process_example_metadata(example: Dict[str, Any],instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:") -> Dict[str, Any]:
         """
         Process metadata only (no image loading)
         """
         return {
             "prompt":  (
             "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. "
-            "The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.\nUser: Please write SVG code for generating the image corresponding to the following description: "
+            + f"The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.\nUser: {instruction_prompt} "
             + example["sentences"]["raw"]
             + "\nAssistant: <think>"
         ),
@@ -136,3 +138,17 @@ class COCOImageDataset:
         # Add the images to the examples dictionary
         examples['image'] = images
         return examples
+
+
+
+if __name__ == "__main__":
+    # Quick test of dataset loading and image processing
+    dataset = COCOImageDataset.load_dataset("coco_image", max_train_samples=2, max_test_samples=2)
+    print(f"Loaded {len(dataset['train'])} training and {len(dataset['test'])} test examples")
+    example = dataset['train'][0]
+    print(f"Example caption: {example['solution'][:30]}...")
+    print(f"Example prompt: {example['prompt']}")
+    print(f"Image path: {example['image_path']}")
+    # Test image loading
+    loaded = COCOImageDataset.load_image_transform({'image_path': [example['image_path']]})
+    print(f"Image loaded: {loaded['image'][0] is not None}, shape: {loaded['image'][0].shape if loaded['image'][0] is not None else None}")

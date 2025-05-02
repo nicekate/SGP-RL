@@ -13,12 +13,7 @@ image_transform = transforms.Compose([
     transforms.Resize((224, 224))
 ])
 
-SYSTEM_PROMPT = (
-    "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
-    "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
-    "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
-    "<think> reasoning process here </think>\n<answer> answer here </answer>"
-)
+
 
 from typing import Dict, List, Optional, Union, Any
 from datasets import Dataset, IterableDataset, DatasetDict, concatenate_datasets
@@ -48,6 +43,7 @@ class MixedSVGImageDataset:
         filter_successful_only: bool = True,
         filter_has_description: bool = True,
         complexity_threshold: Optional[float] = None,
+        instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:",
         seed: int = 42,
         **kwargs
     ) -> Union[Dataset, IterableDataset]:
@@ -75,6 +71,7 @@ class MixedSVGImageDataset:
             dataset_name="coco_image",
             max_train_samples=-1,  # Load all available COCO data
             max_test_samples=-1,   # Load all available COCO data
+            instruction_prompt = instruction_prompt,
         )
         
         # Get sizes of original COCO dataset
@@ -96,6 +93,7 @@ class MixedSVGImageDataset:
             filter_successful_only=filter_successful_only,
             filter_has_description=filter_has_description,
             complexity_threshold=complexity_threshold,
+            instruction_prompt = instruction_prompt,
             seed=seed,
         )
         

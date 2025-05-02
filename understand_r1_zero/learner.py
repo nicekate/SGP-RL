@@ -112,6 +112,13 @@ TEMPLATE_FACTORY = {
     # "no": apply_no_template,
 }
 
+svg_prompts = {
+    "normal": "Please write SVG code for generating the image corresponding to the following description:",
+    "sketch": "Please write SVG code for generating a sketch style image without color fills corresponding to the following description:",
+    "bw": "Please write SVG code for generating a black and white image corresponding to the following description:",
+    
+}
+
 class ZeroSVGLearner(PPOLearner):
     def _init(self, args: ZeroSVGArgs, actors: List[ActorBase]) -> None:
         super()._init(args, actors)
@@ -193,6 +200,7 @@ class ZeroSVGLearner(PPOLearner):
             None, 
             max_train_samples=self.args.max_train_svg,
             max_test_samples=500,
+            instruction_prompt = svg_prompts[self.args.prompt_type],
         )
         # math_prompt_dataset = load_data_from_disk_or_hf(self.args.prompt_data_math)
         

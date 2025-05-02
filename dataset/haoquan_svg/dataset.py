@@ -4,12 +4,7 @@ import json
 import os
 import torch
 
-SYSTEM_PROMPT = (
-    "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
-    "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
-    "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
-    "<think> reasoning process here </think>\n<answer> answer here </answer>"
-)
+
 
 class HQSVGDataset:
     """
@@ -21,13 +16,14 @@ class HQSVGDataset:
         dataset_name: str,
         dataset_config: Optional[Dict[str, Any]] = None,
         dataset_path: str="/home/chenyamei/data/haoquan_svg/svg-gen-70k.jsonl",
-        test_split_ratio: float = 0.1,  
+        test_split_ratio: float = 0.0,  
         max_train_samples: Optional[int] = -1,
         max_test_samples: Optional[int] = -1,
         filter_successful_only: bool = True,
         filter_has_description: bool = True,
         filter_text_content: bool = True, 
         complexity_threshold: Optional[float] = None,
+        instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:",
         seed: int = 42,  # Added seed parameter for reproducibility
         **kwargs
     ) -> Union[Dataset, IterableDataset]:
@@ -89,10 +85,15 @@ class HQSVGDataset:
         dataset['train'] = dataset['train'].shuffle(seed=seed)
         
         # Split into train and test (80/20 split by default)
-        dataset = dataset['train'].train_test_split(test_size=test_split_ratio, seed=seed)
-        
+        if test_split_ratio > 0:
+            dataset = dataset['train'].train_test_split(test_size=test_split_ratio, seed=seed)
+        else:
+            dataset['test'] = dataset['train'].select(range(10))
         # Process examples to match expected format
-        dataset = dataset.map(HQSVGDataset.process_example)
+        process_with_instruction = lambda example: HQSVGDataset.process_example(
+        example, instruction_prompt=instruction_prompt
+            )
+        dataset = dataset.map(process_with_instruction)
         
         # Apply selection if needed
         if max_train_samples and max_train_samples > 0:
@@ -103,7 +104,7 @@ class HQSVGDataset:
             
         return dataset
     @staticmethod
-    def process_example(example: Dict[str, Any]) -> Dict[str, Any]:
+    def process_example(example: Dict[str, Any], instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:") -> Dict[str, Any]:
         """
         Process a single example from the dataset
         """
@@ -113,8 +114,8 @@ class HQSVGDataset:
         
         # Create the formatted prompt
         prompt = (
-            "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. "
-            "The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.\nUser: Please write SVG code for generating the image corresponding to the following description: "
+            "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. " 
+            +f"The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>.\nUser: {instruction_prompt} "
             + description
             + "\nAssistant: <think>"
         )
@@ -153,7 +154,7 @@ if __name__ == "__main__":
     dataset = HQSVGDataset.load_dataset(
         'haoquan_svg',
         dataset_path="/home/chenyamei/data/haoquan_svg/svg-gen-70k.jsonl",
-        test_split_ratio=0.1,
+        test_split_ratio=0.0,
         max_train_samples=-1,
         filter_successful_only=True,
         complexity_threshold=0.0  # Only examples with complexity > 5
@@ -162,6 +163,6 @@ if __name__ == "__main__":
     # Print dataset statistics
     print(f"Train examples: {len(dataset['train'])}")
     print(f"Test examples: {len(dataset['test'])}")
-
+    print(dataset['train'][0])
     # Show sample entry
-    print(dataset['train'].filter(lambda x: 'Gray distorted and mirrored text creates a cryptic eye chart illusion.' in x['description'])[0]['svg'])
+    # print(dataset['train'].filter(lambda x: 'Gray distorted and mirrored text creates a cryptic eye chart illusion.' in x['description'])[0]['svg'])
