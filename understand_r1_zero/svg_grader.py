@@ -1,7 +1,7 @@
 from .clips import (clip_text_image_distances_batch,
                     dinov2_image_image_distances_batch,
                     dinov2_image_image_patch_distances_batch,
-                    siglip_text_image_distances_batch,siglip2_text_image_distances_batch)
+                    siglip_text_image_distances_batch,siglip2_text_image_distances_batch,siglip_long_text_image_distances_batch)
 from .svg import (extract_svg, safe_svg_to_image, get_svg_code_length, is_sketch_style, is_greyscale)
 from functools import partial
 
@@ -15,7 +15,8 @@ clip_name_dict = {
     "siglip_small": partial(siglip_text_image_distances_batch, model_name = "google/siglip-base-patch16-384"),
     "siglip_large": partial(siglip_text_image_distances_batch, model_name = "google/siglip-large-patch16-384"),
     "siglip2_giant": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-giant-opt-patch16-384"),
-    "siglip2_large": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-large-patch16-384"),}
+    "siglip2_large": partial(siglip2_text_image_distances_batch, model_name = "google/siglip2-large-patch16-384"),
+    "sigliplong_small": partial(siglip_long_text_image_distances_batch, model_name = "google/siglip-base-patch16-384"),}
 
 dino_name_dict = {
     "dino": dinov2_image_image_distances_batch,
@@ -92,14 +93,15 @@ def render_response_to_image(response, args=None):
     if not svg_content:
         info["error"] = "No SVG found in answer"
         return None, info
-    if args.require_sketch:
-        if not is_sketch_style(svg_content):
-            info["error"] = "Not a sketch style SVG"
-            return None, info
-    if args.require_greystyle:
-        if not is_greyscale(svg_content):
-            info["error"] = "Not a grayscale SVG"
-            return None, info
+    if args is not None:
+        if args.require_sketch:
+            if not is_sketch_style(svg_content):
+                info["error"] = "Not a sketch style SVG"
+                return None, info
+        if args.require_greystyle:
+            if not is_greyscale(svg_content):
+                info["error"] = "Not a grayscale SVG"
+                return None, info
     
     try:
         

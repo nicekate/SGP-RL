@@ -386,7 +386,7 @@ def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[
         with torch.no_grad():
             # Process text batch - only for valid indices
             valid_texts = [batch_texts[i] for i in valid_indices]
-            text_tokens = clip.tokenize(valid_texts).to(device)
+            text_tokens = clip.tokenize(valid_texts, truncate = True).to(device)
             text_embeddings = model.encode_text(text_tokens)
             
             # Process image batch - only valid images
@@ -548,6 +548,151 @@ def siglip_text_image_distances_batch(texts: Union[str, List[str]], images: Unio
     
     return batch_distances
 
+
+def siglip_long_text_image_distances_batch(
+    texts: Union[str, List[str]], 
+    images: Union[Image.Image, List[Image.Image]], 
+    model=None, 
+    processor=None, 
+    tokenizer=None,
+    model_name="google/siglip-large-patch16-384", 
+    device=None,
+    aggregation="mean"  # Options: "mean", "max", "min", "weighted"
+) -> Union[float, List[float]]:
+    """
+    Processes long texts by splitting into sentences, calling siglip_text_image_distances_batch 
+    on the flattened list, then aggregating results by original text.
+    
+    Args:
+        texts: Either a single text string or a list of text strings
+        images: Either a single PIL Image or a list of PIL Images
+        model: Pre-loaded SigLIP model (optional)
+        processor: Pre-loaded SigLIP processor (optional) 
+        tokenizer: Pre-loaded SigLIP tokenizer (optional)
+        model_name: SigLIP model to use
+        device: Device to run the model on
+        aggregation: Method to aggregate sentence distances ("mean", "max", "min", "weighted")
+        
+    Returns:
+        Aggregated distances between texts and images
+    """
+    try:
+        from nltk.tokenize import sent_tokenize
+        nltk_available = True
+    except ImportError:
+        nltk_available = False
+        import re
+    
+    # Handle single inputs
+    single_text = isinstance(texts, str)
+    single_image = isinstance(images, Image.Image)
+    
+    if single_text:
+        texts = [texts]
+    if single_image:
+        images = [images] * len(texts)
+    
+    # Ensure images list is same length as texts
+    if len(images) != len(texts):
+        assert False, f"Number of texts ({len(texts)}) must match number of images ({len(images)})"
+    
+    # Step 1: Split texts into sentences and keep track of original text indices
+    all_sentences = []
+    sentence_to_text_idx = []
+    text_sentence_counts = []
+    
+    for i, text in enumerate(texts):
+        # Skip None or empty texts
+        if text is None or not str(text).strip():
+            all_sentences.append("")  # Add empty placeholder
+            sentence_to_text_idx.append(i)
+            text_sentence_counts.append(1)
+            continue
+        
+        # Split into sentences
+        if nltk_available:
+            sentences = sent_tokenize(str(text))
+        else:
+            # Simple regex-based fallback
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', str(text)) if s.strip()]
+        
+        # If no sentences detected, use whole text as one sentence
+        if not sentences:
+            sentences = [str(text)]
+            
+        # Record sentence count for this text
+        text_sentence_counts.append(len(sentences))
+        
+        # Add sentences to flattened list and record original text index
+        for sentence in sentences:
+            all_sentences.append(sentence)
+            sentence_to_text_idx.append(i)
+    
+    # Step 2: Duplicate images to match sentences
+    all_images = []
+    for i, idx in enumerate(sentence_to_text_idx):
+        if idx < len(images):
+            all_images.append(images[idx])
+        else:
+            # Fallback if indices don't match (shouldn't happen)
+            all_images.append(None)
+    
+    # Step 3: Call siglip_text_image_distances_batch with the flattened lists
+    if not all_sentences:
+        # Handle empty case
+        return 1.0 if single_text else [1.0] * len(texts)
+    
+    # Get model, processor, and tokenizer if not provided
+    if model is None or processor is None or tokenizer is None:
+        model, processor, tokenizer = get_siglip_model(model_name=model_name, device=device)
+    
+    sentence_distances = siglip_text_image_distances_batch(
+        all_sentences, 
+        all_images,
+        model_name=model_name, 
+        device=device
+    )
+    
+    # Step 4: Aggregate results by original text index
+    result_distances = []
+    start_idx = 0
+    
+    for i, count in enumerate(text_sentence_counts):
+        if count == 0:
+            result_distances.append(1.0)  # Default for empty text
+            continue
+            
+        # Get distances for sentences in this text
+        text_sentence_distances = sentence_distances[start_idx:start_idx + count]
+        start_idx += count
+        
+        # Apply aggregation method
+        if aggregation == "max":
+            # Minimum distance = maximum similarity
+            result_distances.append(min(text_sentence_distances))
+        elif aggregation == "min":
+            # Maximum distance = minimum similarity
+            result_distances.append(max(text_sentence_distances))
+        elif aggregation == "weighted":
+            # Weight by sentence length
+            sentence_texts = [all_sentences[start_idx - count + j] for j in range(count)]
+            weights = [len(s.strip()) for s in sentence_texts]
+            total_weight = sum(weights)
+            
+            if total_weight > 0:
+                weighted_avg = sum(d * (w/total_weight) for d, w in zip(text_sentence_distances, weights))
+                result_distances.append(weighted_avg)
+            else:
+                result_distances.append(sum(text_sentence_distances) / count)
+        else:
+            # Default to mean
+            result_distances.append(sum(text_sentence_distances) / count)
+    
+    # Return single value for single input
+    if single_text:
+        return result_distances[0]
+        
+    return result_distances
 
 def siglip2_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], model=None, processor=None, tokenizer=None, model_name="google/siglip2-large-patch16-384", device=None) -> Union[float, List[float]]:
     """

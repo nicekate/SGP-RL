@@ -16,6 +16,7 @@ from .coco_image.dataset import COCOImageDataset
 from .simplelr.dataset import SimplelrDataset
 from .haoquan_svg.dataset import HQSVGDataset
 from .coco_mix.dataset import MixedSVGImageDataset
+from .vgbench.dataset import VGBenchDataset
 from .reward import Reward, SVGReward, SVGImageReward, SVGRawImageReward
 
 # Registry for datasets
@@ -35,6 +36,7 @@ DATASETS = {
     "simplelr": SimplelrDataset,
     "hq_svg": HQSVGDataset,
     "coco_mix": MixedSVGImageDataset,
+    "vgbench/VGen": VGBenchDataset,
     # Add more datasets here
 }
 

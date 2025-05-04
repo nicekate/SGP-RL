@@ -65,11 +65,11 @@ def prepare_data_batched(max_eval_samples=100, batch_size=16):
                 return self.prompts[idx], self.captions[idx], self.images[idx], image_transform(Image.open(self.images[idx]).convert('RGB'))
     
     # Load raw datasets
-    hq_svg_dataset = get_dataset_class('hq_svg')().load_dataset(
-        'hq_svg',
+    hq_svg_dataset = get_dataset_class('vgbench/VGen')().load_dataset(
+        'vgbench/VGen',
         None,
-        max_test_samples=max_eval_samples,
-    )['test']
+        max_train_samples=max_eval_samples,
+    )['train']
     
     coco_dataset = get_dataset_class("HuggingFaceM4/COCO")().load_dataset(
         "HuggingFaceM4/COCO",
@@ -101,7 +101,7 @@ def prepare_data_batched(max_eval_samples=100, batch_size=16):
     )
     
     return {
-        'hq_svg': {
+        'vgbench': {
             'dataloader': hq_svg_loader,
             'total_samples': len(hq_svg_dataset),
         },
@@ -835,7 +835,7 @@ def main_multigpus(
     
     # Setup model evaluation dictionary
     models_dict = {
-        'clip': ['clip_small', 'clip_large'], 
+        'clip': ['clip_small', 'clip_large', 'siglip_large'], 
         'dino': ['dino_small', 'dino_base', 'dino_large', 'dino_giant']
     }
     
@@ -1156,6 +1156,7 @@ def eval_checkpoints(
     wandb_project: str = "svg-model-evaluation",
     wandb_entity: str = None,
     num_checkpoints: int = 5,  # Evaluate only 5 checkpoints
+    num_gpus: int = 8,  # Number of GPUs to use for evaluation
 ):
     """
     Evaluate SVG generation models across 5 evenly-spaced checkpoints and log to wandb.
@@ -1192,44 +1193,56 @@ def eval_checkpoints(
     if not checkpoint_dirs:
         print(f"No checkpoint directories found in {model_path}")
         return
-    
-    # Select evenly spaced checkpoints
+    # Select the latest checkpoints
     if len(checkpoint_dirs) <= num_checkpoints:
         # If we have fewer checkpoints than requested, use all of them
         selected_checkpoints = checkpoint_dirs
     else:
-        # Always include the last checkpoint
-        last_checkpoint = checkpoint_dirs[-1]
-        
-        if num_checkpoints == 1:
-            # If only evaluating one checkpoint, use the last one
-            selected_checkpoints = [last_checkpoint]
-        else:
-            # Select evenly spaced checkpoints for the remaining slots
-            # We need (num_checkpoints - 1) earlier checkpoints
-            remaining_slots = num_checkpoints - 1
-            
-            # Use earlier checkpoints evenly spaced
-            earlier_checkpoints = checkpoint_dirs[:-1]  # Exclude the last one
-            if remaining_slots >= len(earlier_checkpoints):
-                # If we need all earlier checkpoints
-                selected_earlier = earlier_checkpoints
-            else:
-                # Select evenly spaced earlier checkpoints
-                indices = [i * (len(earlier_checkpoints) - 1) // (remaining_slots - 1) for i in range(remaining_slots)]
-                selected_earlier = [earlier_checkpoints[i] for i in indices]
-            
-            # Combine earlier checkpoints with the last one
-            selected_checkpoints = selected_earlier + [last_checkpoint]
-    
+        # Select only the most recent num_checkpoints
+        selected_checkpoints = checkpoint_dirs[-num_checkpoints:]
+
     print(f"Selected {len(selected_checkpoints)} checkpoints to evaluate from {len(checkpoint_dirs)} available")
     for cp in selected_checkpoints:
         step_match = re.search(r'step_(\d+)', cp)
         step = int(step_match.group(1)) if step_match else "unknown"
-        if cp == checkpoint_dirs[-1]:
-            print(f"  - Step {step}: {cp} (LAST CHECKPOINT)")
-        else:
-            print(f"  - Step {step}: {cp}")
+        print(f"  - Step {step}: {cp}")
+    # Select evenly spaced checkpoints
+    # if len(checkpoint_dirs) <= num_checkpoints:
+    #     # If we have fewer checkpoints than requested, use all of them
+    #     selected_checkpoints = checkpoint_dirs
+    # else:
+    #     # Always include the last checkpoint
+    #     last_checkpoint = checkpoint_dirs[-1]
+        
+    #     if num_checkpoints == 1:
+    #         # If only evaluating one checkpoint, use the last one
+    #         selected_checkpoints = [last_checkpoint]
+    #     else:
+    #         # Select evenly spaced checkpoints for the remaining slots
+    #         # We need (num_checkpoints - 1) earlier checkpoints
+    #         remaining_slots = num_checkpoints - 1
+            
+    #         # Use earlier checkpoints evenly spaced
+    #         earlier_checkpoints = checkpoint_dirs[:-1]  # Exclude the last one
+    #         if remaining_slots >= len(earlier_checkpoints):
+    #             # If we need all earlier checkpoints
+    #             selected_earlier = earlier_checkpoints
+    #         else:
+    #             # Select evenly spaced earlier checkpoints
+    #             indices = [i * (len(earlier_checkpoints) - 1) // (remaining_slots - 1) for i in range(remaining_slots)]
+    #             selected_earlier = [earlier_checkpoints[i] for i in indices]
+            
+    #         # Combine earlier checkpoints with the last one
+    #         selected_checkpoints = selected_earlier + [last_checkpoint]
+    
+    # print(f"Selected {len(selected_checkpoints)} checkpoints to evaluate from {len(checkpoint_dirs)} available")
+    # for cp in selected_checkpoints:
+    #     step_match = re.search(r'step_(\d+)', cp)
+    #     step = int(step_match.group(1)) if step_match else "unknown"
+    #     if cp == checkpoint_dirs[-1]:
+    #         print(f"  - Step {step}: {cp} (LAST CHECKPOINT)")
+    #     else:
+    #         print(f"  - Step {step}: {cp}")
     
     # Extract model name from base path for WandB run naming
     model_name = extract_model_name(model_path)
@@ -1281,6 +1294,7 @@ def eval_checkpoints(
                 batch_size=batch_size,
                 save=save,
                 output_dir=eval_dir,
+                num_gpus=num_gpus,
             )
             
             # Store results
