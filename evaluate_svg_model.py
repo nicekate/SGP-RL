@@ -101,10 +101,10 @@ def prepare_data_batched(max_eval_samples=100, batch_size=16):
     )
     
     return {
-        'vgbench': {
-            'dataloader': hq_svg_loader,
-            'total_samples': len(hq_svg_dataset),
-        },
+        # 'vgbench': {
+        #     'dataloader': hq_svg_loader,
+        #     'total_samples': len(hq_svg_dataset),
+        # },
         'coco': {
             'dataloader': coco_loader,
             'total_samples': len(coco_dataset),
@@ -238,7 +238,7 @@ def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_p
     if not all_rendered_images:
         print("No valid SVGs rendered!")
         return results
-    
+     
     # Step 2: Calculate CLIP rewards for all valid rendered images at once
     all_captions = []
     for idx in prompt_indices:
@@ -433,244 +433,525 @@ def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_p
     
     return results
 
-def main(
-    model_name: str = "/home/share/oat-output/scale_reward_cliponly_small_0419T08:08:32/saved_models/step_00300/",  
-    temperature: float = 1.0,
-    top_p: float = 1.0,
-    max_tokens: int = 2048,
-    max_model_len: int = 4096,
-    n_samples: int = 8,  # Number of samples per prompt
-    max_eval_samples: int = 32,
-    batch_size: int = 16,  # Number of prompts to process simultaneously
-    save: bool = True,
-    output_dir: str = "./evaluation_results",
-    gpu_count: int = 1,  # Number of GPUs to use
-):
-    """Evaluate SVG generation model batch by batch"""
-    # Set GPU count for tensor parallelism
-    if gpu_count is None:
-        import torch
-        gpu_count = torch.cuda.device_count()
-    
-    print(f"Using {gpu_count} GPUs for tensor parallelism")
-    
-    # Initialize directories
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Configure model inference settings
-    sampling_params = vllm.SamplingParams(
-        n=n_samples,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=max_tokens,
-        logprobs=1,
-        seed=int(time.time_ns()),
-        stop=["</answer>"],
-        include_stop_str_in_output=True
-    )
 
-    # Initialize vLLM with tensor parallelism
-    model = vllm.LLM(
-        model_name,
-        tensor_parallel_size=gpu_count,
-        swap_space=32,
-        max_model_len=max_model_len,
-        dtype="bfloat16",
-        enable_prefix_caching=True,
-        gpu_memory_utilization=0.4,
-    )
+def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_prompt, reference_images=None, 
+                                                models_dict={'clip': ['clip'], 'dino': ['dino']}, eval_dir=None, batch_idx=None):
+    """
+    Calculate rewards for SVG responses with batch processing for higher throughput.
     
-    # Load datasets
-    datasets = prepare_data_batched(max_eval_samples, batch_size)
+    Args:
+        captions (List[str]): List of text prompts/descriptions
+        model_responses_by_prompt (List[List[str]]): List of k lists, each with n SVG responses
+        reference_images (List[ndarray|tensor], optional): List of reference images
+        models_dict (dict): Dictionary specifying which models to use
     
-    # Setup model evaluation dictionary
-    models_dict = {
-        'clip': ['clip_small', 'clip_large'], 
-        'dino': ['dino_small', 'dino_base', 'dino_large', 'dino_giant']
+    Returns:
+        dict: Dictionary containing rewards, diversity metrics, and additional information
+    """
+    import os
+    import numpy as np
+    import torch
+    from torch.nn.functional import cosine_similarity
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"
+    
+    num_prompts = len(captions)
+    save_to_disk = eval_dir is not None and batch_idx is not None
+    
+    # Initialize unified data structure
+    batch_data = {
+        "prompts": {},
+        "metadata": {
+            "batch_idx": batch_idx,
+            "num_prompts": num_prompts,
+            "timestamp": time.time()
+        },
     }
     
-    # Results storage
-    task_results = {}
     
-    # Process each dataset
-    for task_name, dataset_info in datasets.items():
-        dataloader = dataset_info['dataloader']
-        print(f"Evaluating task: {task_name} with {dataset_info['total_samples']} examples")
-        
-        # Initialize accumulated results for this task
-        task_accumulated_results = {
-            "per_prompt": [],
-            "avg_clip_reward": 0.0,
-            "avg_dino_reward": 0.0,
-            "avg_diversity": 0.0,
-            "total_valid_count": 0,
-            "overall_success_rate": 0.0,
-            "total_count": 0,
-            "model_specific_rewards": {model: 0.0 for model in 
-                                      models_dict['clip'] + models_dict['dino']}
+    
+    # Initialize prompt data structure
+    for i in range(num_prompts):
+        batch_data["prompts"][str(i)] = {
+            "caption": captions[i],
+            "responses": [],
+            "diversities_by_model": {},
+            "diversity": 0.0,
+            # "valid_count": 0,
         }
-        
-        
-        # Process each batch individually
-        for batch_idx, batch in enumerate(dataloader):
-            import torch
-
-            torch.cuda.empty_cache()
-            batch_prompts, batch_captions, batch_ref, batch_ref_images = batch
-            print(f"Processing batch {batch_idx+1}/{len(dataloader)}")
-            
-            # 1. Generate SVGs with vLLM for this batch
-            batch_generated_responses = []
-            outputs = model.generate(batch_prompts, sampling_params)
-            torch.cuda.empty_cache()
-            # Extract responses grouped by prompt
-            for output in outputs:
-                batch_generated_responses.append([o.text for o in output.outputs])
-            
-            # 2. Evaluate this batch immediately
-            print(f"Evaluating batch {batch_idx+1} with {len(batch_prompts)} prompts")
-            batch_results = calculate_eval_rewards_with_diversity_batched(
-                batch_captions,
-                batch_generated_responses,
-                batch_ref_images,
-                models_dict=models_dict,
-            )
-            
-            # 3. Report batch results
-            if batch_results["total_valid_count"] > 0:
-                
-                
-                # 4. Accumulate results from this batch
-                task_accumulated_results["per_prompt"].extend(batch_results["per_prompt"])
-                task_accumulated_results["total_valid_count"] += batch_results["total_valid_count"]
-                task_accumulated_results["total_count"] += batch_results["total_count"]
-                task_accumulated_results["avg_clip_reward"] += batch_results["sum_clip_reward"]
-                task_accumulated_results["avg_dino_reward"] += batch_results["sum_dino_reward"]
-                task_accumulated_results["avg_diversity"] += batch_results["sum_diversity"]
-                
-                # Accumulate per-model metrics
-                for model_name, score in batch_results["model_specific_rewards"].items():
-                    if model_name in task_accumulated_results["model_specific_rewards"]:
-                        task_accumulated_results["model_specific_rewards"][model_name] += score
-        
-        # Calculate task-level averages
-        task_accumulated_results["avg_clip_reward"] /= task_accumulated_results["total_count"] 
-        task_accumulated_results["avg_clip_reward"] /= len(models_dict['clip'])
-        task_accumulated_results["avg_dino_reward"] /= task_accumulated_results["total_count"]
-        task_accumulated_results["avg_dino_reward"] /= len(models_dict['dino'])
-        task_accumulated_results["avg_diversity"] /= task_accumulated_results["total_count"]
-        
-        # Average per-model metrics
-        for model_name in task_accumulated_results["model_specific_rewards"]:
-            task_accumulated_results["model_specific_rewards"][model_name] /= task_accumulated_results["total_count"]
-            
-        # Calculate overall success rate
-        task_accumulated_results["overall_success_rate"] = (
-            task_accumulated_results["total_valid_count"] / 
-            task_accumulated_results["total_count"] 
-            if task_accumulated_results["total_count"] > 0 else 0.0
-        )
-        
-        # Store aggregated task results
-        task_results[task_name] = task_accumulated_results
-        
-        # Report task summary
-        print(f"\n--- {task_name} Final Results ---")
-        print(f"Average CLIP reward: {task_accumulated_results['avg_clip_reward']:.4f}")
-        print(f"Average DINO reward: {task_accumulated_results['avg_dino_reward']:.4f}")
-        print(f"Average diversity: {task_accumulated_results['avg_diversity']:.4f}")
-        print(f"Success rate: {task_accumulated_results['overall_success_rate']:.2%}")
-        
-        # Per-model metrics
-        print("\nPer-model metrics for this task:")
-        for model_type, model_list in models_dict.items():
-            print(f"  {model_type.upper()} models:")
-            for model_name in model_list:
-                if model_name in task_accumulated_results["model_specific_rewards"]:
-                    score = task_accumulated_results["model_specific_rewards"][model_name]
-                    print(f"    - {model_name}: {score:.4f}")
     
-    # Calculate overall metrics across tasks
-    overall_results = {
-        "model": model_name,
-        "tasks": {},
-        "avg_clip_reward": 0.0,
-        "avg_dino_reward": 0.0,
-        "avg_diversity": 0.0,
-        "overall_success_rate": 0.0,
-        "valid_count": 0,
-        "total_count": 0,
-        "model_specific_rewards": {model: 0.0 for model in 
-                                  models_dict['clip'] + models_dict['dino']}
+    # Initialize models
+    clip_models = models_dict.get('clip', [])
+    dino_models = models_dict.get('dino', [])
+    clip_model_fns = [clip_name_dict[reward_model_name] for reward_model_name in clip_models if reward_model_name in clip_name_dict]
+    dino_model_fns = [dino_name_dict[reward_model_name] for reward_model_name in dino_models if reward_model_name in dino_name_dict]
+    
+    # Step 1: Render all SVGs for all prompts (in batches if needed)
+    all_rendered_images = []  # Will be a flattened list
+    all_svg_infos = []  # Will be a flattened list
+    prompt_indices = []  # Maps each rendered image to its prompt index
+    response_indices = []  # Maps each rendered image to its response index within the prompt
+    
+    if save_to_disk:
+        batch_dir = os.path.join(eval_dir, f"batch_{batch_idx}")
+        os.makedirs(batch_dir, exist_ok=True)
+    
+    for prompt_idx in range(num_prompts):
+        responses = model_responses_by_prompt[prompt_idx]
+        if save_to_disk:
+            prompt_dir = os.path.join(batch_dir, f"prompt_{prompt_idx}")
+            os.makedirs(prompt_dir, exist_ok=True)
+        
+        for resp_idx, response in enumerate(responses):
+            rendered_image, info = render_response_to_image(response)
+            
+            # Initialize response data structure
+            response_data = {
+                "index": resp_idx,
+                "text": response,
+                "valid": rendered_image is not None,
+                "metrics": {}
+            }
+            
+            if rendered_image is not None:
+                all_rendered_images.append(rendered_image)
+                all_svg_infos.append(info)
+                prompt_indices.append(prompt_idx)
+                response_indices.append(resp_idx)
+                # batch_data["prompts"][str(prompt_idx)]["valid_count"] += 1
+                
+                
+                # Save the image if requested
+                if save_to_disk:
+                    # Create image path and save
+                    image_path = os.path.join(prompt_dir, f"response_{resp_idx}.jpg")
+                    if rendered_image.mode == 'RGBA':
+                        rgb_image = Image.new('RGB', rendered_image.size, (255, 255, 255))
+                        rgb_image.paste(rendered_image, mask=rendered_image.split()[3])  # 3 is the alpha channel
+                        rendered_image = rgb_image
+                    rendered_image.save(image_path)
+                    
+                    # Add image path to response data
+                    response_data["image_path"] = os.path.relpath(image_path, eval_dir)
+            
+            # Add SVG information
+            if info:
+                # response_data["svg_info"] = info
+                response_data["formatted"] = info.get("formatted", False)
+            
+            # Add response data to batch data
+            batch_data["prompts"][str(prompt_idx)]["responses"].append(response_data)
+    
+    # Save batch JSON with prompt and response information if requested
+    if save_to_disk:
+        json_path = os.path.join(batch_dir, "batch_info.json")
+        with open(json_path, "w") as f:
+            json.dump(batch_data, f, indent=2)
+        print(f"Saved batch info before eval to {json_path}")
+    
+    # If no valid images, return empty results
+    if not all_rendered_images:
+        print("No valid SVGs rendered!")
+        return batch_data
+     
+    # Step 2: Calculate CLIP rewards for all valid rendered images at once
+    all_captions = []
+    for idx in prompt_indices:
+        all_captions.append(captions[idx])
+    
+    for clip_model_name in clip_models:
+        if clip_model_name in clip_name_dict:
+            try:
+                # Process all images at once with CLIP
+                clip_model = clip_name_dict[clip_model_name]
+                clip_scores = clip_model(all_captions, all_rendered_images)
+                
+                # Assign scores back to the right prompts and responses
+                for i, (prompt_idx, resp_idx) in enumerate(zip(prompt_indices, response_indices)):
+                    prompt_str = str(prompt_idx)
+                    
+                    # Add CLIP reward
+                    clip_reward = 1.0 - clip_scores[i]  # Convert distance to similarity
+                    if not isinstance(clip_reward, float):
+                        clip_reward = float(clip_reward)
+                    
+                    # Store the metric in the response
+                    batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"][clip_model_name] = clip_reward
+                    
+                    # Also track total clip reward
+                    if "clip_reward" not in batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]:
+                        batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["clip_reward"] = 0.0
+                        batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["total_reward"] = 0.0
+                    
+                    batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["clip_reward"] += clip_reward
+                    batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["total_reward"] += clip_reward
+                    
+            except Exception as e:
+            
+                assert False, f"Error calculating CLIP scores with {clip_model_name}: {e}"
+    
+    # Step 3: Calculate DINO rewards if reference images exist
+    if reference_images is not None:
+        all_ref_images = []
+        indices_with_refs = []
+        rendered_with_refs = []
+        
+        for i, (prompt_idx, _) in enumerate(zip(prompt_indices, response_indices)):
+            if reference_images[prompt_idx] is not None:
+                all_ref_images.append(reference_images[prompt_idx])
+                rendered_with_refs.append(all_rendered_images[i])
+                indices_with_refs.append(i)
+                
+        if indices_with_refs:  # Only process if we have valid reference-render pairs
+            for dino_model_name in dino_models:
+                if dino_model_name in dino_name_dict:
+                    try:
+                        # Process batch with DINO
+                        dino_model = dino_name_dict[dino_model_name]
+                        dino_scores, all_features = dino_model(all_ref_images, rendered_with_refs, return_features=True)
+                        
+                        # Assign scores back to the right prompts and responses
+                        for batch_idx, orig_idx in enumerate(indices_with_refs):
+                            prompt_idx = prompt_indices[orig_idx]
+                            resp_idx = response_indices[orig_idx]
+                            prompt_str = str(prompt_idx)
+                            
+                            dino_reward = 1.0 - dino_scores[batch_idx]  # Convert distance to similarity
+                            if not isinstance(dino_reward, float):
+                                dino_reward = float(dino_reward)
+                            dino_feature = all_features[batch_idx]
+                            
+                            # Store the metric in the response
+                            batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"][dino_model_name] = dino_reward
+                            
+                            # Initialize dino reward if needed
+                            if "dino_reward" not in batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]:
+                                batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["dino_reward"] = 0.0
+                                
+                            batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["dino_reward"] += dino_reward
+                            batch_data["prompts"][prompt_str]["responses"][resp_idx]["metrics"]["total_reward"] += dino_reward
+                            
+                            # Store feature for diversity calculation
+                            if "dino_feature" not in batch_data["prompts"][prompt_str]["responses"][resp_idx]:
+                                batch_data["prompts"][prompt_str]["responses"][resp_idx]["dino_feature"] = {}
+                                
+                            batch_data["prompts"][prompt_str]["responses"][resp_idx]["dino_feature"][dino_model_name] = dino_feature
+                            
+                    except Exception as e:
+                        assert False, f"Error calculating DINO scores with {dino_model_name}: {e}"
+                        print(f"Error calculating DINO scores with {dino_model_name}: {e}")
+    
+    # Step 4: Calculate diversity for each prompt using DINO features
+    for prompt_idx in range(num_prompts):
+        prompt_str = str(prompt_idx)
+        prompt_data = batch_data["prompts"][prompt_str]
+        # Get all valid samples for this prompt
+        valid_samples = [s for s in prompt_data["responses"] if "dino_feature" in s]
+        
+        # Need at least 2 valid rendered images for diversity
+        if len(valid_samples) < 2:
+            prompt_data["diversity"] = 0.0
+            prompt_data["diversities"] = {model: 0.0 for model in dino_models}
+            batch_data["prompts"][prompt_str] = prompt_data
+            # Clean up dino_feature to save memory
+            for sample in valid_samples:    
+                if "dino_feature" in sample:
+                    del sample["dino_feature"]
+            continue
+        
+        
+        
+        # Check if we already have features stored from the DINO scoring step
+        if valid_samples and all("dino_feature" in sample for sample in valid_samples):
+            # Calculate diversity using stored features
+            diversity_by_model = {}
+            
+            for dino_model_name in dino_models:
+                if dino_model_name in dino_name_dict:
+                    try:
+                        # Extract features for this model from all samples
+                        features = [
+                            sample["dino_feature"][dino_model_name] 
+                            for sample in valid_samples 
+                            if dino_model_name in sample.get("dino_feature", {})
+                        ]
+                        features = [f for f in features if f is not None]
+                        
+                        if len(features) >= 2:
+                            # Calculate pairwise similarities
+                            pairwise_sims = []
+                            for i in range(len(features)):
+                                for j in range(i+1, len(features)):
+                                    sim = cosine_similarity(
+                                        features[i].unsqueeze(0),
+                                        features[j].unsqueeze(0)
+                                    ).item()
+                                    pairwise_sims.append(sim)
+                            
+                            # Diversity is inverse of average similarity
+                            avg_sim = np.mean(pairwise_sims) if pairwise_sims else 0
+                            diversity = 1.0 - avg_sim
+                            if not isinstance(diversity, float):
+                                diversity = float(diversity)
+                            diversity_by_model[dino_model_name] = diversity
+                        else:
+                            diversity_by_model[dino_model_name] = 0.0
+                    except Exception as e:
+                        
+                        assert False, f"Error calculating diversity with stored features for {dino_model_name}, prompt {prompt_idx}: {e}"
+                        diversity_by_model[dino_model_name] = 0.0
+        else:
+            assert False
+            
+        # Clean up dino_feature to save memory
+        for sample in valid_samples:
+            if "dino_feature" in sample:
+                del sample["dino_feature"]
+                
+        import gc
+        gc.collect()
+        
+        
+        
+        # Average diversity across DINO models
+        prompt_data["diversity"] = np.mean(list(diversity_by_model.values())) if diversity_by_model else 0.0
+        prompt_data["diversities_by_model"] = diversity_by_model
+        batch_data["prompts"][prompt_str] = prompt_data
+        
+        
+    
+    
+    
+    
+    
+    
+    # Save batch JSON with prompt and response information if requested
+    if save_to_disk:
+        json_path = os.path.join(batch_dir, "batch_info.json")
+        with open(json_path, "w") as f:
+            json.dump(batch_data, f, indent=2)
+        print(f"Saved batch info after eval to {json_path}")
+    
+    return batch_data
+
+
+def calculate_average_metrics(prompt_data_list):
+    """
+    Calculate average metrics from the values of batch_data["prompts"].
+    
+    Args:
+        prompt_data_list (list): List of prompt data dictionaries from batch_data["prompts"].values()
+            Each prompt data has the structure:
+            {
+                "caption": "...",
+                "responses": [...],
+                "diversities_by_model": {...},
+                "diversity": float
+            }
+            
+    Returns:
+        dict: Dictionary containing average metrics and diversity:
+            {
+                "metrics": {
+                    "clip_reward": float,
+                    "dino_reward": float,
+                    "total_reward": float,
+                    
+                    "clip_small": float,
+                    "clip_large": float,
+                    ...
+                    
+                },
+                "diversity": {
+                    "average": float,
+                    "model_specific": {
+                        "dino_small": float,
+                        "dino_base": float,
+                        ...
+                    }
+                },
+                "valid_count": int,
+                "total_count": int,
+                "success_rate": float
+            }
+    """
+    # Initialize counters and accumulators
+    valid_count = 0
+    total_count = 0
+    
+    # Metric accumulators
+    metric_sums = {
     }
     
-    # Aggregate metrics across tasks
-    for task_name, task_result in task_results.items():
-        overall_results["tasks"][task_name] = {
-            "avg_clip_reward": task_result["avg_clip_reward"],
-            "avg_dino_reward": task_result["avg_dino_reward"],
-            "avg_diversity": task_result["avg_diversity"],
-            "success_rate": task_result["overall_success_rate"],
-            "valid_count": task_result["total_valid_count"],
-            "total_count": task_result["total_count"],
-            "model_specific_rewards": task_result["model_specific_rewards"]
-        }
-        
-        overall_results["avg_clip_reward"] += task_result["avg_clip_reward"]
-        overall_results["avg_dino_reward"] += task_result["avg_dino_reward"]
-        overall_results["avg_diversity"] += task_result["avg_diversity"]
-        overall_results["valid_count"] += task_result["total_valid_count"]
-        overall_results["total_count"] += task_result["total_count"]
-        
-        # Aggregate per-model metrics
-        for model_name, score in task_result["model_specific_rewards"].items():
-            if model_name in overall_results["model_specific_rewards"]:
-                overall_results["model_specific_rewards"][model_name] += score
+    # Track model-specific metrics
+    model_specific_sums = {}
     
-    # Calculate overall averages
-    task_count = len(task_results)
-    if task_count > 0:
-        overall_results["avg_clip_reward"] /= task_count
-        overall_results["avg_dino_reward"] /= task_count
-        overall_results["avg_diversity"] /= task_count
-        
-        # Average per-model metrics
-        for model_name in overall_results["model_specific_rewards"]:
-            overall_results["model_specific_rewards"][model_name] /= task_count
-        
-        overall_results["overall_success_rate"] = (
-            overall_results["valid_count"] / overall_results["total_count"]
-            if overall_results["total_count"] > 0 else 0.0
-        )
+    # Track all diversity values
+    diversity_sum = 0.0
+    diversity_by_model = {}
+    prompts_with_diversity = 0
     
-    # Print overall summary
-    print("\n=== OVERALL EVALUATION RESULTS ===")
-    print(f"Average CLIP reward: {overall_results['avg_clip_reward']:.4f}")
-    print(f"Average DINO reward: {overall_results['avg_dino_reward']:.4f}")
-    print(f"Average diversity: {overall_results['avg_diversity']:.4f}")
-    print(f"Overall success rate: {overall_results['overall_success_rate']:.2%}")
-    
-    # Print per-model metrics
-    print("\nPer-model metrics across all tasks:")
-    for model_type, model_list in models_dict.items():
-        print(f"  {model_type.upper()} models:")
-        for model_name in model_list:
-            if model_name in overall_results["model_specific_rewards"]:
-                score = overall_results["model_specific_rewards"][model_name]
-                print(f"    - {model_name}: {score:.4f}")
-    
-    # Save detailed results if requested
-    if save:
-        timestamp = int(time.time())
-        model_short_name = model_name.split("/")[-1]
-        output_file = Path(output_dir) / f"svg_eval_{model_short_name}_{timestamp}.json"
+    # Iterate through all prompts and responses
+    for prompt_data in prompt_data_list:
+        # Count the prompt if it has diversity
+        if "diversity" in prompt_data and prompt_data["diversity"] > 0:
+            diversity_sum += prompt_data["diversity"]
+            prompts_with_diversity += 1
         
-        print(f"Saving detailed evaluation results to {output_file}")
-        with open(output_file, "w") as f:
-            json.dump(overall_results, f, indent=2)
+        # Accumulate model-specific diversity metrics
+        if "diversities_by_model" in prompt_data:
+            for model_name, value in prompt_data["diversities_by_model"].items():
+                if model_name not in diversity_by_model:
+                    diversity_by_model[model_name] = []
+                diversity_by_model[model_name].append(value)
+        
+        # Process each response for this prompt
+        for response in prompt_data["responses"]:
+            total_count += 1
+            
+            # Only count valid responses with metrics
+            if response.get("valid", False) and "metrics" in response:
+                valid_count += 1
+                
+                
+                
+                # Accumulate model-specific metrics
+                for metric_name, value in response["metrics"].items():
+                    
+                    
+                    if metric_name not in metric_sums:
+                        metric_sums[metric_name] = 0.0
+                    
+                    metric_sums[metric_name] += value
+    
+    # Calculate averages
+    result = {
+        "metrics": {
+            k: metric_sums[k] / total_count if valid_count > 0 else 0.0 for k in metric_sums
+        },
+        "diversity": {
+            "average": diversity_sum / total_count if prompts_with_diversity > 0 else 0.0,
+           
+        },
+        "valid_count": valid_count,
+        "total_count": total_count,
+        "success_rate": valid_count / total_count if total_count > 0 else 0.0
+    }
+    
+    
+    
+    # Add model-specific diversity averages
+    for model_name, values in diversity_by_model.items():
+        if values:
+            result["diversity"][model_name] = sum(values) / total_count
+        else:
+            result["diversity"][model_name] = 0.0
+    
+    return result
 
-    return overall_results
 
+def average_dictionaries(dict_list):
+    """
+    Given a list of dictionaries with identical structure, return a single dictionary
+    with each value being the average of corresponding values across all dictionaries.
+    
+    Args:
+        dict_list (list): List of dictionaries with identical structure
+        
+    Returns:
+        dict: A dictionary with averaged values
+    """
+    if not dict_list:
+        return {}
+    
+    if len(dict_list) == 1:
+        return dict_list[0].copy()
+    
+    # Check that all dictionaries have the same structure
+    first_dict = dict_list[0]
+    all_keys = set(first_dict.keys())
+    
+    # Verify all dictionaries have the same keys
+    for i, d in enumerate(dict_list[1:], 1):
+        dict_keys = set(d.keys())
+        if dict_keys != all_keys:
+            missing = all_keys - dict_keys
+            extra = dict_keys - all_keys
+            print(f"Warning: Dictionary {i} has different structure than the first dictionary.")
+            if missing:
+                print(f"  Missing keys: {missing}")
+            if extra:
+                print(f"  Extra keys: {extra}")
+            assert False, "Dictionaries have different structures"
+            # Will only average the common keys
+    
+    # Initialize result dictionary
+    result = {}
+    
+    # Process each key present in all dictionaries
+    for key in first_dict:
+        # Check if this key exists in all dictionaries
+        if not all(key in d for d in dict_list):
+            print(f"Warning: Key '{key}' not present in all dictionaries, skipping.")
+            continue
+        
+        # For each key, collect the values from all dictionaries
+        values = [d[key] for d in dict_list if key in d]
+        
+        # Process based on value type
+        if isinstance(first_dict[key], dict):
+            # For nested dictionaries, recursively average
+            nested_dicts = [d[key] for d in dict_list if key in d]
+            result[key] = average_dictionaries(nested_dicts)
+            
+        elif isinstance(first_dict[key], (int, float)):
+            # For numeric values, compute average
+            result[key] = sum(values) / len(values)
+            
+        elif isinstance(first_dict[key], list) and all(isinstance(v, (int, float)) for v in first_dict[key]):
+            # For lists of numbers, check if all have the same length
+            if all(len(v) == len(first_dict[key]) for v in values):
+                # Average element-wise
+                result[key] = [sum(item) / len(values) for item in zip(*values)]
+            else:
+                # If lists have different lengths, warn and use the first value
+                print(f"Warning: Lists for key '{key}' have different lengths, using first list.")
+                result[key] = first_dict[key]
+                
+        else:
+            # For other types, just use the first value
+            result[key] = first_dict[key]
+    
+    return result
+
+def flatten_dict(nested_dict, parent_key='', sep='_'):
+    """
+    Flattens a nested dictionary by concatenating keys with underscores.
+    
+    Args:
+        nested_dict (dict): The nested dictionary to flatten
+        parent_key (str): The parent key used in recursion (default: '')
+        sep (str): The separator between nested keys (default: '_')
+        
+    Returns:
+        dict: A flattened dictionary where nested keys are combined with parent keys
+    """
+    flat_dict = {}
+    
+    for key, value in nested_dict.items():
+        # Create the new key by combining the parent key with the current key
+        new_key = f"{parent_key}{sep}{key}" if parent_key else key
+        
+        # If the value is a dictionary, recursively flatten it
+        if isinstance(value, dict):
+            # Recursively call flatten_dict with the nested dictionary
+            nested_flat = flatten_dict(value, new_key, sep)
+            # Update the flat_dict with the flattened nested dictionary
+            flat_dict.update(nested_flat)
+        else:
+            # For non-dictionary values, directly add to the flattened dictionary
+            flat_dict[new_key] = value
+    
+    return flat_dict
 
 import ray
 
@@ -698,8 +979,8 @@ class ModelWorker:
             max_model_len=max_model_len,
             dtype="bfloat16",
             # enable_prefix_caching=False,  # Disable prefix caching to prevent memory accumulation
-            gpu_memory_utilization=0.35,   # Reduced to prevent OOM
-            enforce_eager=True,           # Better memory management
+            gpu_memory_utilization=0.7,   # Reduced to prevent OOM
+            # enforce_eager=True,           # Better memory management
             
         )
     
@@ -835,7 +1116,7 @@ def main_multigpus(
     
     # Setup model evaluation dictionary
     models_dict = {
-        'clip': ['clip_small', 'clip_large', 'siglip_large'], 
+        'clip': ['clip_small', 'clip_large', 'siglip_large', 'siglip_small'], 
         'dino': ['dino_small', 'dino_base', 'dino_large', 'dino_giant']
     }
     
@@ -850,17 +1131,7 @@ def main_multigpus(
         print(f"Evaluating task: {task_name} with {dataset_info['total_samples']} examples")
         
         # Initialize accumulated results for this task
-        task_accumulated_results = {
-            "per_prompt": [],
-            "avg_clip_reward": 0.0,
-            "avg_dino_reward": 0.0,
-            "avg_diversity": 0.0,
-            "total_valid_count": 0,
-            "overall_success_rate": 0.0,
-            "total_count": 0,
-            "model_specific_rewards": {model: 0.0 for model in 
-                                      models_dict['clip'] + models_dict['dino']}
-        }
+        task_accumulated_results = []
         
         # Track worker availability
         worker_status = [True] * num_gpus  # True means worker is available
@@ -906,10 +1177,11 @@ def main_multigpus(
             while active_tasks:
                 # Wait for any task to complete
                 ready_refs = [task_ref for task_ref, _ in active_tasks.values()]
-                done_refs, _ = ray.wait(ready_refs, num_returns=1, timeout=120)
+                done_refs, _ = ray.wait(ready_refs, num_returns=1, timeout=3000)
                 
                 if not done_refs:
                     print("Timeout waiting for tasks. Continuing...")
+                    assert False, "Timeout waiting for tasks"
                     continue
                 
                 # Find which worker completed its task
@@ -930,19 +1202,7 @@ def main_multigpus(
                 # Process result
                 try:
                     batch_results = ray.get(done_ref)
-                    
-                    if batch_results and batch_results["total_valid_count"] > 0:
-                        # Accumulate results
-                        task_accumulated_results["per_prompt"].extend(batch_results["per_prompt"])
-                        task_accumulated_results["total_valid_count"] += batch_results["total_valid_count"]
-                        task_accumulated_results["total_count"] += batch_results["total_count"]
-                        task_accumulated_results["avg_clip_reward"] += batch_results["sum_clip_reward"]
-                        task_accumulated_results["avg_dino_reward"] += batch_results["sum_dino_reward"] 
-                        task_accumulated_results["avg_diversity"] += batch_results["sum_diversity"]
-                        
-                        for reward_model_name, score in batch_results["model_specific_rewards"].items():
-                            if reward_model_name in task_accumulated_results["model_specific_rewards"]:
-                                task_accumulated_results["model_specific_rewards"][reward_model_name] += score
+                    task_accumulated_results += batch_results["prompts"].values()
                     
                     completed_batches += 1
                     pbar.update(1)
@@ -995,114 +1255,50 @@ def main_multigpus(
 
 
 
-
-        
-        # Calculate task-level averages
-        if task_accumulated_results["total_count"] > 0:
-            task_accumulated_results["avg_clip_reward"] /= task_accumulated_results["total_count"] 
-            task_accumulated_results["avg_clip_reward"] /= len(models_dict['clip'])
-            task_accumulated_results["avg_dino_reward"] /= task_accumulated_results["total_count"]
-            task_accumulated_results["avg_dino_reward"] /= len(models_dict['dino'])
-            task_accumulated_results["avg_diversity"] /= task_accumulated_results["total_count"]
-            
-            # Average per-model metrics
-            for reward_model_name in task_accumulated_results["model_specific_rewards"]:
-                task_accumulated_results["model_specific_rewards"][reward_model_name] /= task_accumulated_results["total_count"]
-        
-        # Calculate overall success rate
-        task_accumulated_results["overall_success_rate"] = (
-            task_accumulated_results["total_valid_count"] / 
-            task_accumulated_results["total_count"] 
-            if task_accumulated_results["total_count"] > 0 else 0.0
-        )
-        
+       
         # Store aggregated task results
-        task_results[task_name] = task_accumulated_results
+        task_results[task_name] = calculate_average_metrics(task_accumulated_results)
         
         # Report task summary
-        print(f"\n--- {task_name} Final Results ---")
-        print(f"Average CLIP reward: {task_accumulated_results['avg_clip_reward']:.4f}")
-        print(f"Average DINO reward: {task_accumulated_results['avg_dino_reward']:.4f}")
-        print(f"Average diversity: {task_accumulated_results['avg_diversity']:.4f}")
-        print(f"Success rate: {task_accumulated_results['overall_success_rate']:.2%}")
         
-        # Per-model metrics
-        print("\nPer-model metrics for this task:")
-        for model_type, model_list in models_dict.items():
-            print(f"  {model_type.upper()} models:")
-            for reward_model_name in model_list:
-                if reward_model_name in task_accumulated_results["model_specific_rewards"]:
-                    score = task_accumulated_results["model_specific_rewards"][reward_model_name]
-                    print(f"    - {reward_model_name}: {score:.4f}")
+        
+        print(f"\n--- {task_name} Results Summary ---")
+        print(f"Valid responses: {task_results[task_name]['valid_count']} / {task_results[task_name]['total_count']} ({task_results[task_name]['success_rate']:.2%})")
+        print(f"Average metrics:")
+        
+        # Print CLIP and DINO rewards
+        for metric_name, value in task_results[task_name]['metrics'].items():
+            print(f"  {metric_name}: {value:.4f}")
+            
+        # Print diversity metrics
+        print(f"Diversity metrics:")
+        print(f"  Average diversity: {task_results[task_name]['diversity']['average']:.4f}")
+        for model_name, value in task_results[task_name]['diversity'].items():
+            if model_name != "average":
+                print(f"  {model_name}: {value:.4f}")
+        
+        
+        
     
     # Calculate overall metrics across tasks
-    overall_results = {
-        "model": model_name,
-        "tasks": {},
-        "avg_clip_reward": 0.0,
-        "avg_dino_reward": 0.0,
-        "avg_diversity": 0.0,
-        "overall_success_rate": 0.0,
-        "valid_count": 0,
-        "total_count": 0,
-        "model_specific_rewards": {model: 0.0 for model in 
-                                  models_dict['clip'] + models_dict['dino']}
-    }
+    overall_results = average_dictionaries(list(task_results.values()))
+ 
     
-    # Aggregate metrics across tasks
-    for task_name, task_result in task_results.items():
-        overall_results["tasks"][task_name] = {
-            "avg_clip_reward": task_result["avg_clip_reward"],
-            "avg_dino_reward": task_result["avg_dino_reward"],
-            "avg_diversity": task_result["avg_diversity"],
-            "success_rate": task_result["overall_success_rate"],
-            "valid_count": task_result["total_valid_count"],
-            "total_count": task_result["total_count"],
-            "model_specific_rewards": task_result["model_specific_rewards"]
-        }
-        
-        overall_results["avg_clip_reward"] += task_result["avg_clip_reward"]
-        overall_results["avg_dino_reward"] += task_result["avg_dino_reward"]
-        overall_results["avg_diversity"] += task_result["avg_diversity"]
-        overall_results["valid_count"] += task_result["total_valid_count"]
-        overall_results["total_count"] += task_result["total_count"]
-        
-        # Aggregate per-model metrics
-        for reward_model_name, score in task_result["model_specific_rewards"].items():
-            if reward_model_name in overall_results["model_specific_rewards"]:
-                overall_results["model_specific_rewards"][reward_model_name] += score
-    
-    # Calculate overall averages
-    task_count = len(task_results)
-    if task_count > 0:
-        overall_results["avg_clip_reward"] /= task_count
-        overall_results["avg_dino_reward"] /= task_count
-        overall_results["avg_diversity"] /= task_count
-        
-        # Average per-model metrics
-        for reward_model_name in overall_results["model_specific_rewards"]:
-            overall_results["model_specific_rewards"][reward_model_name] /= task_count
-        
-        overall_results["overall_success_rate"] = (
-            overall_results["valid_count"] / overall_results["total_count"]
-            if overall_results["total_count"] > 0 else 0.0
-        )
-    
-    # Print overall summary
+    #Print overall summary
     print("\n=== OVERALL EVALUATION RESULTS ===")
-    print(f"Average CLIP reward: {overall_results['avg_clip_reward']:.4f}")
-    print(f"Average DINO reward: {overall_results['avg_dino_reward']:.4f}")
-    print(f"Average diversity: {overall_results['avg_diversity']:.4f}")
-    print(f"Overall success rate: {overall_results['overall_success_rate']:.2%}")
+    print(f"Total valid responses: {overall_results['valid_count']} / {overall_results['total_count']} ({overall_results['success_rate']:.2%})")
     
-    # Print per-model metrics
-    print("\nPer-model metrics across all tasks:")
-    for model_type, model_list in models_dict.items():
-        print(f"  {model_type.upper()} models:")
-        for reward_model_name in model_list:
-            if reward_model_name in overall_results["model_specific_rewards"]:
-                score = overall_results["model_specific_rewards"][reward_model_name]
-                print(f"    - {reward_model_name}: {score:.4f}")
+    print("\nAverage metrics across all tasks:")
+    for metric_name, value in overall_results['metrics'].items():
+        print(f"  {metric_name}: {value:.4f}")
+    
+    print("\nDiversity metrics:")
+    print(f"  Average diversity: {overall_results['diversity']['average']:.4f}")
+    
+    for model_name, value in overall_results['diversity'].items():
+        if model_name != "average":
+            print(f"  {model_name}: {value:.4f}")
+    
     
     # Save detailed results if requested
     if save:
@@ -1146,7 +1342,7 @@ def eval_checkpoints(
     model_path: str = "/home/share/oat-output/scale_reward_cliponly_small_0419T08:08:32/saved_models/",
     temperature: float = 1.0,
     top_p: float = 1.0,
-    max_tokens: int = 2048,
+    max_tokens: int = 3000,
     max_model_len: int = 4096,
     n_samples: int = 8,
     max_eval_samples: int = 1024,
@@ -1301,29 +1497,8 @@ def eval_checkpoints(
             all_results[step] = checkpoint_result
             
             # Log results to WandB
-            wandb_log_dict = {
-                "overall/clip_reward": checkpoint_result["avg_clip_reward"],
-                "overall/dino_reward": checkpoint_result["avg_dino_reward"],
-                "overall/diversity": checkpoint_result["avg_diversity"],
-                "overall/success_rate": checkpoint_result["overall_success_rate"],
-            }
+            wandb_log_dict = flatten_dict(checkpoint_result)
             
-            # Log task-specific metrics
-            for task_name, task_metrics in checkpoint_result["tasks"].items():
-                wandb_log_dict.update({
-                    f"{task_name}/clip_reward": task_metrics["avg_clip_reward"],
-                    f"{task_name}/dino_reward": task_metrics["avg_dino_reward"],
-                    f"{task_name}/diversity": task_metrics["avg_diversity"],
-                    f"{task_name}/success_rate": task_metrics["success_rate"],
-                })
-                
-                # Log model-specific metrics for each task
-                for reward_model_name, score in task_metrics["model_specific_rewards"].items():
-                    wandb_log_dict[f"{task_name}/{reward_model_name}"] = score
-            
-            # Log overall model-specific metrics
-            for reward_model_name, score in checkpoint_result["model_specific_rewards"].items():
-                wandb_log_dict[f"overall/{reward_model_name}"] = score
             
             # Log to wandb with the step number
             wandb.log(wandb_log_dict, step=step)
@@ -1339,34 +1514,6 @@ def eval_checkpoints(
                 "checkpoint": checkpoint_dir
             }, step=step)
     
-    # Create summary table of results across checkpoints if available
-    if all_results:
-        # Create step progression tables
-        steps = sorted(all_results.keys())
-        clip_table = wandb.Table(columns=["step"] + list(all_results[steps[0]]["tasks"].keys()))
-        dino_table = wandb.Table(columns=["step"] + list(all_results[steps[0]]["tasks"].keys()))
-        
-        for step in steps:
-            clip_row = [step]
-            dino_row = [step]
-            
-            for task_name in all_results[step]["tasks"].keys():
-                clip_row.append(all_results[step]["tasks"][task_name]["avg_clip_reward"])
-                dino_row.append(all_results[step]["tasks"][task_name]["avg_dino_reward"])
-            
-            clip_table.add_data(*clip_row)
-            dino_table.add_data(*dino_row)
-        
-        wandb.log({
-            "clip_rewards_by_step": wandb.plot.line(
-                clip_table, "step", list(all_results[steps[0]]["tasks"].keys()),
-                title="CLIP Rewards Progression"
-            ),
-            "dino_rewards_by_step": wandb.plot.line(
-                dino_table, "step", list(all_results[steps[0]]["tasks"].keys()),
-                title="DINO Rewards Progression"
-            )
-        })
     
     # Finish wandb run
     wandb.finish()
