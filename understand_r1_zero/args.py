@@ -37,6 +37,7 @@ class ZeroSVGArgs(PPOArgs):
     prompt_type: str = "normal"
     require_greystyle: bool = False
     require_sketch: bool = False
+    critic_type: Literal["ppo", "grpo", "drgrpo", "rfpp"] = "drgrpo"
     
     
     # Verifier.

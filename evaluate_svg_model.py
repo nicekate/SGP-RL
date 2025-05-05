@@ -28,7 +28,7 @@ from datasets import load_from_disk
 from understand_r1_zero.svg_grader import calculate_eval_rewards, render_response_to_image, clip_name_dict, dino_name_dict
 from torchvision import transforms
 from understand_r1_zero.svg import (extract_svg, safe_svg_to_image)
-
+from eval_utils import (calculate_average_metrics,average_dictionaries,flatten_dict,read_evaluation_results)
 
 image_transform = transforms.Compose([
     transforms.ToTensor(),
@@ -65,11 +65,10 @@ def prepare_data_batched(max_eval_samples=100, batch_size=16):
                 return self.prompts[idx], self.captions[idx], self.images[idx], image_transform(Image.open(self.images[idx]).convert('RGB'))
     
     # Load raw datasets
-    hq_svg_dataset = get_dataset_class('vgbench/VGen')().load_dataset(
-        'vgbench/VGen',
-        None,
-        max_train_samples=max_eval_samples,
-    )['train']
+    hq_svg_dataset = get_dataset_class('hq_svg_new')().load_dataset(
+        'hq_svg_new',
+        None
+    )['test']
     
     coco_dataset = get_dataset_class("HuggingFaceM4/COCO")().load_dataset(
         "HuggingFaceM4/COCO",
@@ -101,10 +100,10 @@ def prepare_data_batched(max_eval_samples=100, batch_size=16):
     )
     
     return {
-        # 'vgbench': {
-        #     'dataloader': hq_svg_loader,
-        #     'total_samples': len(hq_svg_dataset),
-        # },
+        'SGP-Single-9k': {
+            'dataloader': hq_svg_loader,
+            'total_samples': len(hq_svg_dataset),
+        },
         'coco': {
             'dataloader': coco_loader,
             'total_samples': len(coco_dataset),
@@ -734,224 +733,6 @@ def calculate_eval_rewards_with_diversity_batched(captions, model_responses_by_p
     return batch_data
 
 
-def calculate_average_metrics(prompt_data_list):
-    """
-    Calculate average metrics from the values of batch_data["prompts"].
-    
-    Args:
-        prompt_data_list (list): List of prompt data dictionaries from batch_data["prompts"].values()
-            Each prompt data has the structure:
-            {
-                "caption": "...",
-                "responses": [...],
-                "diversities_by_model": {...},
-                "diversity": float
-            }
-            
-    Returns:
-        dict: Dictionary containing average metrics and diversity:
-            {
-                "metrics": {
-                    "clip_reward": float,
-                    "dino_reward": float,
-                    "total_reward": float,
-                    
-                    "clip_small": float,
-                    "clip_large": float,
-                    ...
-                    
-                },
-                "diversity": {
-                    "average": float,
-                    "model_specific": {
-                        "dino_small": float,
-                        "dino_base": float,
-                        ...
-                    }
-                },
-                "valid_count": int,
-                "total_count": int,
-                "success_rate": float
-            }
-    """
-    # Initialize counters and accumulators
-    valid_count = 0
-    total_count = 0
-    
-    # Metric accumulators
-    metric_sums = {
-    }
-    
-    # Track model-specific metrics
-    model_specific_sums = {}
-    
-    # Track all diversity values
-    diversity_sum = 0.0
-    diversity_by_model = {}
-    prompts_with_diversity = 0
-    
-    # Iterate through all prompts and responses
-    for prompt_data in prompt_data_list:
-        # Count the prompt if it has diversity
-        if "diversity" in prompt_data and prompt_data["diversity"] > 0:
-            diversity_sum += prompt_data["diversity"]
-            prompts_with_diversity += 1
-        
-        # Accumulate model-specific diversity metrics
-        if "diversities_by_model" in prompt_data:
-            for model_name, value in prompt_data["diversities_by_model"].items():
-                if model_name not in diversity_by_model:
-                    diversity_by_model[model_name] = []
-                diversity_by_model[model_name].append(value)
-        
-        # Process each response for this prompt
-        for response in prompt_data["responses"]:
-            total_count += 1
-            
-            # Only count valid responses with metrics
-            if response.get("valid", False) and "metrics" in response:
-                valid_count += 1
-                
-                
-                
-                # Accumulate model-specific metrics
-                for metric_name, value in response["metrics"].items():
-                    
-                    
-                    if metric_name not in metric_sums:
-                        metric_sums[metric_name] = 0.0
-                    
-                    metric_sums[metric_name] += value
-    
-    # Calculate averages
-    result = {
-        "metrics": {
-            k: metric_sums[k] / total_count if valid_count > 0 else 0.0 for k in metric_sums
-        },
-        "diversity": {
-            "average": diversity_sum / total_count if prompts_with_diversity > 0 else 0.0,
-           
-        },
-        "valid_count": valid_count,
-        "total_count": total_count,
-        "success_rate": valid_count / total_count if total_count > 0 else 0.0
-    }
-    
-    
-    
-    # Add model-specific diversity averages
-    for model_name, values in diversity_by_model.items():
-        if values:
-            result["diversity"][model_name] = sum(values) / total_count
-        else:
-            result["diversity"][model_name] = 0.0
-    
-    return result
-
-
-def average_dictionaries(dict_list):
-    """
-    Given a list of dictionaries with identical structure, return a single dictionary
-    with each value being the average of corresponding values across all dictionaries.
-    
-    Args:
-        dict_list (list): List of dictionaries with identical structure
-        
-    Returns:
-        dict: A dictionary with averaged values
-    """
-    if not dict_list:
-        return {}
-    
-    if len(dict_list) == 1:
-        return dict_list[0].copy()
-    
-    # Check that all dictionaries have the same structure
-    first_dict = dict_list[0]
-    all_keys = set(first_dict.keys())
-    
-    # Verify all dictionaries have the same keys
-    for i, d in enumerate(dict_list[1:], 1):
-        dict_keys = set(d.keys())
-        if dict_keys != all_keys:
-            missing = all_keys - dict_keys
-            extra = dict_keys - all_keys
-            print(f"Warning: Dictionary {i} has different structure than the first dictionary.")
-            if missing:
-                print(f"  Missing keys: {missing}")
-            if extra:
-                print(f"  Extra keys: {extra}")
-            assert False, "Dictionaries have different structures"
-            # Will only average the common keys
-    
-    # Initialize result dictionary
-    result = {}
-    
-    # Process each key present in all dictionaries
-    for key in first_dict:
-        # Check if this key exists in all dictionaries
-        if not all(key in d for d in dict_list):
-            print(f"Warning: Key '{key}' not present in all dictionaries, skipping.")
-            continue
-        
-        # For each key, collect the values from all dictionaries
-        values = [d[key] for d in dict_list if key in d]
-        
-        # Process based on value type
-        if isinstance(first_dict[key], dict):
-            # For nested dictionaries, recursively average
-            nested_dicts = [d[key] for d in dict_list if key in d]
-            result[key] = average_dictionaries(nested_dicts)
-            
-        elif isinstance(first_dict[key], (int, float)):
-            # For numeric values, compute average
-            result[key] = sum(values) / len(values)
-            
-        elif isinstance(first_dict[key], list) and all(isinstance(v, (int, float)) for v in first_dict[key]):
-            # For lists of numbers, check if all have the same length
-            if all(len(v) == len(first_dict[key]) for v in values):
-                # Average element-wise
-                result[key] = [sum(item) / len(values) for item in zip(*values)]
-            else:
-                # If lists have different lengths, warn and use the first value
-                print(f"Warning: Lists for key '{key}' have different lengths, using first list.")
-                result[key] = first_dict[key]
-                
-        else:
-            # For other types, just use the first value
-            result[key] = first_dict[key]
-    
-    return result
-
-def flatten_dict(nested_dict, parent_key='', sep='_'):
-    """
-    Flattens a nested dictionary by concatenating keys with underscores.
-    
-    Args:
-        nested_dict (dict): The nested dictionary to flatten
-        parent_key (str): The parent key used in recursion (default: '')
-        sep (str): The separator between nested keys (default: '_')
-        
-    Returns:
-        dict: A flattened dictionary where nested keys are combined with parent keys
-    """
-    flat_dict = {}
-    
-    for key, value in nested_dict.items():
-        # Create the new key by combining the parent key with the current key
-        new_key = f"{parent_key}{sep}{key}" if parent_key else key
-        
-        # If the value is a dictionary, recursively flatten it
-        if isinstance(value, dict):
-            # Recursively call flatten_dict with the nested dictionary
-            nested_flat = flatten_dict(value, new_key, sep)
-            # Update the flat_dict with the flattened nested dictionary
-            flat_dict.update(nested_flat)
-        else:
-            # For non-dictionary values, directly add to the flattened dictionary
-            flat_dict[new_key] = value
-    
-    return flat_dict
 
 import ray
 
@@ -1338,6 +1119,89 @@ def extract_model_name(path):
         # Fallback in case the pattern doesn't match
         return dir_name
 
+def select_checkpoints(model_path: str, num_checkpoints: int = 5, keep_steps = None):
+    """
+    Select checkpoint directories to evaluate, with evenly spaced distribution
+    and ensuring specific steps are included.
+    
+    Args:
+        model_path (str): Base directory containing checkpoint directories named step_XXXXX
+        num_checkpoints (int): Maximum number of checkpoints to select
+        keep_steps (list): List of specific step numbers that must be included
+        
+    Returns:
+        list: Selected checkpoint directory paths
+    """
+    import os
+    import re
+    import glob
+    
+    # Initialize keep_steps if None
+    if keep_steps is None:
+        keep_steps = []
+    elif isinstance(keep_steps, int):
+        keep_steps = [keep_steps]
+    
+    # Find all checkpoint directories
+    checkpoint_dirs = glob.glob(os.path.join(model_path, "step_*"))
+    checkpoint_dirs.sort()
+    
+    if not checkpoint_dirs:
+        print(f"No checkpoint directories found in {model_path}")
+        return []
+    
+    # Extract step numbers for all checkpoints
+    step_numbers = []
+    step_to_dir = {}
+    for cp in checkpoint_dirs:
+        step_match = re.search(r'step_(\d+)', cp)
+        if step_match:
+            step = int(step_match.group(1))
+            step_numbers.append(step)
+            step_to_dir[step] = cp
+    
+    # Always include the last checkpoint
+    last_step = step_numbers[-1]
+    mandatory_steps = [last_step]
+    
+    # Add requested keep_steps
+    for step in keep_steps:
+        if step in step_to_dir and step not in mandatory_steps:
+            mandatory_steps.append(step)
+    
+    # If we need fewer checkpoints than our mandatory ones,
+    # just return the mandatory checkpoints
+    if num_checkpoints <= len(mandatory_steps):
+        selected_steps = sorted(mandatory_steps)[:num_checkpoints]
+        return [step_to_dir[step] for step in selected_steps]
+    
+    # We need to select additional checkpoints for the remaining slots
+    remaining_slots = num_checkpoints - len(mandatory_steps)
+    
+    # Get available steps (excluding mandatory ones)
+    available_steps = [step for step in step_numbers if step not in mandatory_steps]
+    
+    if not available_steps:
+        # If no more checkpoints available, return what we have
+        return [step_to_dir[step] for step in sorted(mandatory_steps)]
+    
+    if remaining_slots >= len(available_steps):
+        # If we need all available steps, add them all
+        selected_steps = available_steps + mandatory_steps
+    else:
+        # Select evenly spaced checkpoints from available ones
+        indices = [i * (len(available_steps) - 1) // (remaining_slots - 1) for i in range(remaining_slots)]
+        evenly_spaced_steps = [available_steps[i] for i in indices]
+        selected_steps = evenly_spaced_steps + mandatory_steps
+    selected_steps = list(set(selected_steps))  # Remove duplicates
+    # Sort steps and convert to directory paths
+    selected_steps = sorted(selected_steps)
+    selected_checkpoints = [step_to_dir[step] for step in selected_steps]
+    
+    return selected_checkpoints
+    
+    
+
 def eval_checkpoints(
     model_path: str = "/home/share/oat-output/scale_reward_cliponly_small_0419T08:08:32/saved_models/",
     temperature: float = 1.0,
@@ -1389,56 +1253,20 @@ def eval_checkpoints(
     if not checkpoint_dirs:
         print(f"No checkpoint directories found in {model_path}")
         return
-    # Select the latest checkpoints
-    if len(checkpoint_dirs) <= num_checkpoints:
-        # If we have fewer checkpoints than requested, use all of them
-        selected_checkpoints = checkpoint_dirs
-    else:
-        # Select only the most recent num_checkpoints
-        selected_checkpoints = checkpoint_dirs[-num_checkpoints:]
 
+    selected_checkpoints = select_checkpoints(
+        model_path,
+        num_checkpoints=num_checkpoints,
+        keep_steps=[30,750]  # Always include the last checkpoint
+    )
     print(f"Selected {len(selected_checkpoints)} checkpoints to evaluate from {len(checkpoint_dirs)} available")
     for cp in selected_checkpoints:
         step_match = re.search(r'step_(\d+)', cp)
         step = int(step_match.group(1)) if step_match else "unknown"
-        print(f"  - Step {step}: {cp}")
-    # Select evenly spaced checkpoints
-    # if len(checkpoint_dirs) <= num_checkpoints:
-    #     # If we have fewer checkpoints than requested, use all of them
-    #     selected_checkpoints = checkpoint_dirs
-    # else:
-    #     # Always include the last checkpoint
-    #     last_checkpoint = checkpoint_dirs[-1]
-        
-    #     if num_checkpoints == 1:
-    #         # If only evaluating one checkpoint, use the last one
-    #         selected_checkpoints = [last_checkpoint]
-    #     else:
-    #         # Select evenly spaced checkpoints for the remaining slots
-    #         # We need (num_checkpoints - 1) earlier checkpoints
-    #         remaining_slots = num_checkpoints - 1
-            
-    #         # Use earlier checkpoints evenly spaced
-    #         earlier_checkpoints = checkpoint_dirs[:-1]  # Exclude the last one
-    #         if remaining_slots >= len(earlier_checkpoints):
-    #             # If we need all earlier checkpoints
-    #             selected_earlier = earlier_checkpoints
-    #         else:
-    #             # Select evenly spaced earlier checkpoints
-    #             indices = [i * (len(earlier_checkpoints) - 1) // (remaining_slots - 1) for i in range(remaining_slots)]
-    #             selected_earlier = [earlier_checkpoints[i] for i in indices]
-            
-    #         # Combine earlier checkpoints with the last one
-    #         selected_checkpoints = selected_earlier + [last_checkpoint]
-    
-    # print(f"Selected {len(selected_checkpoints)} checkpoints to evaluate from {len(checkpoint_dirs)} available")
-    # for cp in selected_checkpoints:
-    #     step_match = re.search(r'step_(\d+)', cp)
-    #     step = int(step_match.group(1)) if step_match else "unknown"
-    #     if cp == checkpoint_dirs[-1]:
-    #         print(f"  - Step {step}: {cp} (LAST CHECKPOINT)")
-    #     else:
-    #         print(f"  - Step {step}: {cp}")
+        if cp == checkpoint_dirs[-1]:
+            print(f"  - Step {step}: {cp} (LAST CHECKPOINT)")
+        else:
+            print(f"  - Step {step}: {cp}")
     
     # Extract model name from base path for WandB run naming
     model_name = extract_model_name(model_path)

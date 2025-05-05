@@ -186,8 +186,30 @@ class ZeroSVGLearner(PPOLearner):
                 self.args.num_samples, dim=0
             )
             advantages = advantages / (std_grouped_rewards + 1e-8)
+        
         return advantages
-
+    # Add this method to ZeroSVGLearner class
+    def compute_batch_normalized_advantages(self, rewards):
+        """
+        Compute advantages by normalizing rewards across the entire batch.
+        
+        Args:
+            rewards: Reward tensor with shape [batch_size, seq_len]
+        
+        Returns:
+            Tensor of batch-normalized advantages with shape [batch_size]
+        """
+        # Sum rewards across sequence length dimension
+        rewards = rewards.sum(-1)
+        
+        # Compute batch-level statistics
+        batch_mean = rewards.mean()
+        batch_std = rewards.std()
+        
+        # Normalize using batch statistics
+        advantages = (rewards - batch_mean) / (batch_std + 1e-8)
+        
+        return advantages
     def _apply_template(self, example):
         problem = example[self.args.input_key]
         example[self.args.input_key] = TEMPLATE_FACTORY[self.args.prompt_template](problem)
@@ -492,6 +514,7 @@ class ZeroSVGLearner(PPOLearner):
                     self._pre_learning()
                     train_info = self.learn(self.steps // self.update_interval)
                     self._post_learning()
+                    logging.info(f"after _post_learning")
 
                     self.eval_and_log(train_info)
 
@@ -961,6 +984,9 @@ class ZeroSVGLearner(PPOLearner):
         elif self.args.critic_type in ["grpo", "drgrpo"]:
             advantages = self.compute_monte_carlo_advantages(rewards)[:, None]
         
+        elif self.args.critic_type == "rfpp":
+            advantages = self.compute_batch_normalized_advantages(rewards)[:, None]
+        
         sum_alllength_per_prompt = self.compute_sum_alllength_per_prompt(response_masks, loss_masks)
         # Compute losses and update models for multiple PPO epochs.
         stats = defaultdict(list)
@@ -1085,15 +1111,19 @@ class ZeroSVGLearner(PPOLearner):
                     self.strategy.get_gradient_norm(self.model)
                 )
                 self.strategy.optimizer_step(self.optimizer, self.model, self.scheduler)
-
+                gc.collect()
+                torch.cuda.empty_cache()
+                
                 if self.args.critic_type == "ppo":
                     # torch.cuda.empty_cache()
                     # gc.collect()
+                    self.strategy.print("start value_pred")
 
                     # Critic learning.
                     value_pred = self.critic(
                         input_ids=mb_input_ids, attention_mask=mb_att_mask
                     )[:, :-1]
+                    self.strategy.print("finish value_pred")
 
                     value_pred_clipped = torch.clamp(
                         value_pred,
@@ -1108,13 +1138,21 @@ class ZeroSVGLearner(PPOLearner):
                         vf_loss_max, mb_response_masks, axis=1
                     )
                     critic_loss = args.vf_coef * (vf_loss * mb_loss_masks).mean()
+                    self.strategy.print("start critic backward")
 
                     self.strategy.backward(
                         critic_loss, self.critic, self.critic_optimizer
                     )
+                    self.strategy.print("finish critic backward")
+                    del mb_advantage, mb_input_ids, mb_att_mask, mb_logps, mb_loss_masks, logits, new_logps
+                    if args.beta > 0:
+                        del mb_ref_logps, log_ratio, kl3
+                    torch.cuda.empty_cache()
+                    gc.collect()
                     self.strategy.optimizer_step(
                         self.critic_optimizer, self.critic, self.critic_scheduler
                     )
+                    self.strategy.print("finish critic step")
                     infos["critic_loss"] = critic_loss.detach()
                     infos["vf_clipfrac"] = masked_mean(
                         (vf_losses2 > vf_losses1).float(), mb_response_masks

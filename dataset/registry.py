@@ -15,6 +15,7 @@ from .simple_relation.dataset import SimpleRelationDataset
 from .coco_image.dataset import COCOImageDataset
 from .simplelr.dataset import SimplelrDataset
 from .haoquan_svg.dataset import HQSVGDataset
+from .haoquan_svg_new.dataset import NewHQSVGDataset
 from .coco_mix.dataset import MixedSVGImageDataset
 from .vgbench.dataset import VGBenchDataset
 from .reward import Reward, SVGReward, SVGImageReward, SVGRawImageReward
@@ -35,6 +36,7 @@ DATASETS = {
     "coco_image": COCOImageDataset,
     "simplelr": SimplelrDataset,
     "hq_svg": HQSVGDataset,
+    "hq_svg_new": NewHQSVGDataset,
     "coco_mix": MixedSVGImageDataset,
     "vgbench/VGen": VGBenchDataset,
     # Add more datasets here
