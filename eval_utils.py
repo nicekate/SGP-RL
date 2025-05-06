@@ -97,7 +97,7 @@ def calculate_average_metrics(prompt_data_list):
             k: metric_sums[k] / total_count if valid_count > 0 else 0.0 for k in metric_sums
         },
         "diversity": {
-            "average": diversity_sum / total_count if prompts_with_diversity > 0 else 0.0,
+            "average": diversity_sum / prompts_with_diversity if prompts_with_diversity > 0 else 0.0,
            
         },
         "valid_count": valid_count,
@@ -110,7 +110,7 @@ def calculate_average_metrics(prompt_data_list):
     # Add model-specific diversity averages
     for model_name, values in diversity_by_model.items():
         if values:
-            result["diversity"][model_name] = sum(values) / total_count
+            result["diversity"][model_name] = sum(values)/ prompts_with_diversity if prompts_with_diversity > 0 else 0.0
         else:
             result["diversity"][model_name] = 0.0
     
@@ -309,6 +309,9 @@ def read_evaluation_results(eval_dir, load_images=False):
             print(f"Loaded {image_count} images for task '{task_name}'")
     
     return task_results
+
+
+
 
 if __name__ == "__main__":
     # Example usage
