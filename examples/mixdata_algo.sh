@@ -1,0 +1,113 @@
+python train_zero_svg.py \
+    --critic_type ppo \
+    --gpus 8 \
+    --seed 42 \
+    --no-rnd_seed \
+    --enable_prefix_caching \
+    --collocate \
+    --vllm_sleep \
+    --vllm_gpu_ratio 0.3 \
+    --gradient-checkpointing \
+    --flash-attn \
+    --bf16 \
+    --learning_rate 0.000001 \
+    --lr_scheduler constant \
+    --num_ppo_epochs 1 \
+    --beta 0 \
+    --oracle_type reward \
+    --oracle svg \
+    --pretrain Qwen/Qwen2.5-7B \
+    --prompt_template r1_svg \
+    --zero-stage 2 \
+    --ref_offload \
+    --train_split train \
+    --input_key solution \
+    --output_key image_path \
+    --max-train 100000 \
+    --num_prompt_epoch 10 \
+    --prompt_max_length 512 \
+    --num_samples 8 \
+    --temperature 1 \
+    --top_p 1 \
+    --generate_max_length 3000 \
+    --log_completion_steps 10 \
+    --save_steps 30 \
+    --train_batch_size 128 \
+    --train_batch_size_per_device 1 \
+    --mini_train_batch_size_per_device 1 \
+    --rollout_batch_size 128 \
+    --rollout_batch_size_per_device 16 \
+    --pi_buffer_maxlen_per_device 128 \
+    --eval_batch_size 50 \
+    --eval_steps -1 \
+    --eval_temperature 1 \
+    --eval_generate_max_length 3000 \
+    --eval_data ./datasets/evaluation_suite \
+    --eval_input_key input \
+    --use-wb \
+    --wb_project oat-zero-svg \
+    --wb-run-name algo_ppo \
+    --prompt_data_svg coco_mix \
+    --clip_model siglip_small \
+    --dino_coeff 0
+
+
+
+
+    python train_zero_svg.py \
+    --critic_type rfpp \
+    --gpus 8 \
+    --seed 42 \
+    --no-rnd_seed \
+    --enable_prefix_caching \
+    --collocate \
+    --vllm_sleep \
+    --vllm_gpu_ratio 0.3 \
+    --gradient-checkpointing \
+    --flash-attn \
+    --bf16 \
+    --learning_rate 0.000001 \
+    --lr_scheduler constant \
+    --num_ppo_epochs 1 \
+    --beta 0 \
+    --oracle_type reward \
+    --oracle svg \
+    --pretrain Qwen/Qwen2.5-7B \
+    --prompt_template r1_svg \
+    --zero-stage 2 \
+    --ref_offload \
+    --train_split train \
+    --input_key solution \
+    --output_key image_path \
+    --max-train 100000 \
+    --num_prompt_epoch 10 \
+    --prompt_max_length 512 \
+    --num_samples 8 \
+    --temperature 1 \
+    --top_p 1 \
+    --generate_max_length 3000 \
+    --log_completion_steps 10 \
+    --save_steps 30 \
+    --train_batch_size 128 \
+    --train_batch_size_per_device 1 \
+    --mini_train_batch_size_per_device 1 \
+    --rollout_batch_size 128 \
+    --rollout_batch_size_per_device 16 \
+    --pi_buffer_maxlen_per_device 128 \
+    --eval_batch_size 50 \
+    --eval_steps -1 \
+    --eval_temperature 1 \
+    --eval_generate_max_length 3000 \
+    --eval_data ./datasets/evaluation_suite \
+    --eval_input_key input \
+    --use-wb \
+    --wb_project oat-zero-svg \
+    --wb-run-name algo_rfpp \
+    --prompt_data_svg coco_mix \
+    --clip_model siglip_small \
+    --dino_coeff 0
+
+
+
+
+
