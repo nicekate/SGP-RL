@@ -249,70 +249,104 @@ def is_greyscale(svg_source: str) -> bool:
             return False
     
     return True
+
+
+
+def test_svg_with_definitions():
+    """Test svg_to_image function with SVG that uses definitions."""
+    
+    # Create SVG with various definitions (gradient, pattern, reusable path)
+    test_svg = '''
+    <svg width="300" height="300" xmlns="http://www.w3.org/2000/svg">
+        <!-- Definitions for reuse -->
+        <defs>
+            <!-- Linear Gradient -->
+            <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#000000" />
+                <stop offset="100%" stop-color="#FFFFFF" />
+            </linearGradient>
+            
+            <!-- Radial Gradient -->
+            <radialGradient id="gradient2" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                <stop offset="0%" stop-color="#FFFFFF" />
+                <stop offset="100%" stop-color="#444444" />
+            </radialGradient>
+            
+            <!-- Pattern -->
+            <pattern id="pattern1" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                <circle cx="10" cy="10" r="5" fill="black" />
+            </pattern>
+            
+            <!-- Reusable path -->
+            <path id="star" d="M10,0 L12.245,6.91 L19.51,6.91 L14.135,11.18 L16.38,18.09 L10,13.82 L3.62,18.09 L5.865,11.18 L0.49,6.91 L7.755,6.91 Z" />
+        </defs>
+        
+        <!-- Background -->
+        <rect x="0" y="0" width="300" height="300" fill="#eee" />
+        
+        <!-- Elements using definitions -->
+        <circle cx="75" cy="75" r="50" fill="url(#gradient1)" />
+        <circle cx="225" cy="75" r="50" fill="url(#gradient2)" />
+        <rect x="25" y="150" width="100" height="100" fill="url(#pattern1)" />
+        
+        <!-- Reused star shape with different transforms and fills -->
+        <g transform="translate(160, 160) scale(3)">
+            <use href="#star" fill="black" />
+        </g>
+        <g transform="translate(210, 210) scale(2)">
+            <use href="#star" fill="gray" />
+        </g>
+        <g transform="translate(240, 180) scale(1.5)">
+            <use href="#star" fill="white" stroke="black" />
+        </g>
+    </svg>
+    '''
+    
+    print("Testing SVG with definitions...")
+    
+    # Try rendering the SVG
+    image = svg_to_image(test_svg)
+    
+    if image is not None:
+        # Save the output image
+        output_filename = "test_svg_with_defs.png"
+        image.save(output_filename)
+        
+        # Show image info
+        print(f"Successfully rendered SVG to image")
+        print(f"Image size: {image.size}")
+        print(f"Image mode: {image.mode}")
+        print(f"Output saved to: {output_filename}")
+        
+        return True
+    else:
+        print("Failed to render SVG with definitions")
+        return False
+
 if __name__ == "__main__":
-    # Test the SVG processing functions
+    # Test rendering SVG with definitions
+    success = test_svg_with_definitions()
     
-    # Test case 1: Sketch-style SVG (no fills)
-    sketch_svg = '''
+    # Test with safe_svg_to_image (with timeout handling)
+    print("\nTesting with safe_svg_to_image...")
+    
+    # Create a simpler SVG for timeout testing
+    simple_svg = '''
     <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10,10 L90,10 L90,90 L10,90 Z" fill="none" stroke="black"/>
-        <circle cx="50" cy="50" r="20" stroke="black" fill="transparent"/>
+        <defs>
+            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="black"/>
+                <stop offset="100%" stop-color="white"/>
+            </linearGradient>
+        </defs>
+        <rect x="10" y="10" width="80" height="80" fill="url(#grad)"/>
     </svg>
     '''
     
-    # Test case 2: Filled SVG (not sketch-style)
-    filled_svg = '''
-    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10,10 L90,10 L90,90 L10,90 Z" fill="blue" stroke="black"/>
-        <circle cx="50" cy="50" r="20" stroke="black" fill="red"/>
-    </svg>
-    '''
-    
-    # Test is_sketch_style function
-    print("Testing is_sketch_style:")
-    print(f"Sketch SVG is sketch style: {is_sketch_style(sketch_svg)}")  # Should be True
-    print(f"Filled SVG is sketch style: {is_sketch_style(filled_svg)}")  # Should be False
-    
-    # Test extract_svg function
-    print("\nTesting extract_svg:")
-    mixed_content = "Some text before <svg width='100' height='100'><rect width='50' height='50'/></svg> and after"
-    extracted = extract_svg(mixed_content)
-    print(f"Extracted SVG: {extracted[:40]}...")
-    
-    # Test rendering functions
-    print("\nTesting SVG rendering:")
-    image1 = safe_svg_to_image(sketch_svg)
-    image2 = safe_svg_to_image(filled_svg)
-    print(f"Rendered sketch SVG: {'Success' if image1 is not None else 'Failed'}")
-    print(f"Rendered filled SVG: {'Success' if image2 is not None else 'Failed'}")
-    
-    if image1 and image2:
-        # Save the images for inspection
-        image1.save("test_sketch.png")
-        image2.save("test_filled.png")
-        print("Images saved as test_sketch.png and test_filled.png")
-    
-    
-    # Test case 3: Greyscale SVG
-    greyscale_svg = '''
-    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
-        <rect x="10" y="10" width="80" height="80" fill="#333333" stroke="black"/>
-        <circle cx="50" cy="50" r="30" fill="#999999" stroke="#666"/>
-        <path d="M20,20 L80,80" stroke="white" stroke-width="2"/>
-    </svg>
-    '''
-
-    # Test case 4: Colored SVG
-    colored_svg = '''
-    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
-        <rect x="10" y="10" width="80" height="80" fill="red" stroke="black"/>
-        <circle cx="50" cy="50" r="30" fill="blue" stroke="#666"/>
-        <path d="M20,20 L80,80" stroke="white" stroke-width="2"/>
-    </svg>
-    '''
-
-    # Test is_greyscale_svg function
-    print("\nTesting is_greyscale_svg:")
-    print(f"Greyscale SVG is greyscale: {is_greyscale_svg(greyscale_svg)}")  # Should be True
-    print(f"Colored SVG is greyscale: {is_greyscale_svg(colored_svg)}")     # Should be False
-    print(f"Sketch SVG is greyscale: {is_greyscale_svg(sketch_svg)}")       # Should be True
+    # Test with the safe function
+    result = safe_svg_to_image(simple_svg)
+    if result is not None:
+        result.save("test_safe_svg.png")
+        print("safe_svg_to_image test passed - image saved as test_safe_svg.png")
+    else:
+        print("safe_svg_to_image test failed")

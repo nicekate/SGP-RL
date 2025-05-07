@@ -89,7 +89,7 @@ class SVGEvalOracle(SVGOracle):
     """Oracle for evaluating SVG generation using multiple models for evaluation."""
 
     def __init__(self, 
-                 models_dict={'clip': ['clip_small', 'clip_large'], 'dino': ['dino_small', 'dino_base', 'dino_large', 'dino_giant']},
+                 models_dict={'clip': ['siglip_small'], 'dino': []},
                 #  models_dict={'clip': ['clip_small'], 'dino': ['dino_small']}
                  ) -> None:
         """

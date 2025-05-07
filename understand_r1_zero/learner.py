@@ -73,7 +73,7 @@ from oat.interface import get_program, lp
 from oat.oracles.base import PreferenceOracleBase, RewardOracleBase
 from oat.types import Metric, TrajectoryData
 from oat.utils.data import load_data_from_disk_or_hf
-from understand_r1_zero.dataset import PromptImageDataset, PromptSVGDataset, PromptImageSVGDataset
+from understand_r1_zero.dataset import PromptImageDataset, PromptSVGDataset, PromptImageSVGDataset, PureTextDataset
 from dataset.registry import get_dataset_class
 
 from oat.utils.ops import masked_mean, masked_sum
@@ -172,6 +172,40 @@ class ZeroSVGLearner(PPOLearner):
         
         return repeated_sums
 
+
+    def compute_lsc_transformation(self, advantages):
+        """
+        Compute the LSC transformation for rewards.
+        
+        Args:
+            rewards: Tensor of shape [batch_size, seq_len]
+        
+        Returns:
+            Tensor of transformed rewards with shape [batch_size]
+        """
+        
+        
+        # Get lambda parameter from args
+        lam = self.args.lsc_lam
+        
+        # Apply the smoothing function
+        if lam == 0:
+            return advantages
+        else:
+            # Implement f_smooth(x, lam) = (2/lam) * (log(1 + exp(lam * x)) - log(2))
+            advantages = (2.0 / lam) * (torch.log1p(torch.exp(lam * advantages)) - torch.log(torch.tensor(2.0, device=advantages.device)))
+            values = advantages.view(-1, self.args.num_samples).mean(dim=1)
+            values = values.repeat_interleave(self.args.num_samples, dim=0)
+            advantages = advantages - values
+            std_grouped_rewards = advantages.view(-1, self.args.num_samples).std(dim=1)
+            std_grouped_rewards = std_grouped_rewards.repeat_interleave(
+                self.args.num_samples, dim=0
+            )
+            advantages = advantages / (std_grouped_rewards + 1e-8)
+            return advantages
+            
+        
+
     # Dr. GRPO Modification 2: Remove difficulty bias by just computing the MC advantage without dividing by std:
     def compute_monte_carlo_advantages(self, rewards):
         rewards = rewards.sum(-1)
@@ -186,6 +220,7 @@ class ZeroSVGLearner(PPOLearner):
                 self.args.num_samples, dim=0
             )
             advantages = advantages / (std_grouped_rewards + 1e-8)
+            advantages = self.compute_lsc_transformation(advantages)
         
         return advantages
     # Add this method to ZeroSVGLearner class
@@ -256,6 +291,15 @@ class ZeroSVGLearner(PPOLearner):
                 apply_chat_template=False,  # Because we have applied already.
                 get_reference=True,
             )
+        elif self.args.prompt_data_svg == 'puretext':
+            self.prompts_dataset = PureTextDataset(
+                svg_prompts_data,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
         else:
 
             self.prompts_dataset = PromptImageDataset(
@@ -309,6 +353,15 @@ class ZeroSVGLearner(PPOLearner):
             )
         elif self.args.prompt_data_svg == 'coco_mix':
             svg_eval_dataset = PromptImageSVGDataset(
+                svg_eval_dataset,
+                tokenizer,
+                strategy,
+                input_key="solution",
+                apply_chat_template=False,  # Because we have applied already.
+                get_reference=True,
+            )
+        elif self.args.prompt_data_svg == 'puretext':
+            svg_eval_dataset = PureTextDataset(
                 svg_eval_dataset,
                 tokenizer,
                 strategy,

@@ -18,6 +18,7 @@ from .haoquan_svg.dataset import HQSVGDataset
 from .haoquan_svg_new.dataset import NewHQSVGDataset
 from .coco_mix.dataset import MixedSVGImageDataset
 from .vgbench.dataset import VGBenchDataset
+from .pure_text.dataset import PureTextDataset
 from .reward import Reward, SVGReward, SVGImageReward, SVGRawImageReward
 
 # Registry for datasets
@@ -39,6 +40,7 @@ DATASETS = {
     "hq_svg_new": NewHQSVGDataset,
     "coco_mix": MixedSVGImageDataset,
     "vgbench/VGen": VGBenchDataset,
+    "puretext": PureTextDataset,
     # Add more datasets here
 }
 

@@ -199,7 +199,7 @@ def answer_tag_reward_fn(model_responses, prompts, images=None, rewards_dict = {
         for i, (rendered, ref_img) in enumerate(zip(results["rendered_images"], images)):
             
                 
-            if rendered is not None and ref_img is not None:
+            if rendered is not None and ref_img is not None and ref_img.sum() != 0:
                 img_valid_indices.append(i)
                 img_rendered.append(rendered)
                 img_references.append(ref_img)

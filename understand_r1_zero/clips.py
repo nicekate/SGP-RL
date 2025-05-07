@@ -240,91 +240,6 @@ def get_vgg_model(model_name="vgg19", layer_index=8, device=None):
 
 
 
-
-def clip_text_image_distance(text: str, image: Image) -> float:
-    """
-    Computes the cosine distance between a text and an image using CLIP embeddings.
-    
-    Args:
-        text (str): Input text.
-        image (Image): PIL Image.
-    
-    Returns:
-        float: Cosine distance between the text and image embeddings.
-    """
-    # Convert text to CLIP embedding
-    # Get local process info
-    # local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    
-    # # Determine device if not provided
-    # if device is None:
-    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = "cpu"
-    model, preprocess = get_clip_model(device=device)
-    try:
-        with torch.no_grad():
-            
-            text_token = clip.tokenize([text]).to(device)
-            text_embedding = model.encode_text(text_token).detach().cpu()
-
-             # Convert image to CLIP embedding
-    
-        
-            image_input = preprocess(image).unsqueeze(0).to(device)
-            image_embedding = model.encode_image(image_input).detach().cpu()
-
-            # Compute cosine similarity
-            cosine_similarity = torch.nn.functional.cosine_similarity(text_embedding, image_embedding).item()
-    
-            # Convert similarity to distance (1 - similarity)
-            cosine_distance = 1 - cosine_similarity
-            return cosine_distance
-    except Exception as e:
-        print(f"CLIP processing error: {e}")
-        return 0.0
-
-
-def clip_image_image_distance(image1: Image.Image, image2: Image.Image, device=None) -> float:
-    """
-    Computes the cosine distance between two images using CLIP embeddings.
-    
-    Args:
-        image1 (Image): First PIL Image.
-        image2 (Image): Second PIL Image.
-        device (str, optional): Device to run CLIP on. Defaults to "cpu".
-    
-    Returns:
-        float: Cosine distance between the two image embeddings.
-    """
-    # Determine device if not provided
-    if device is None:
-        device = "cpu"
-    
-    model, preprocess = get_clip_model(device=device)
-    try:
-        with torch.no_grad():
-            # Convert first image to CLIP embedding
-            image1_input = preprocess(image1).unsqueeze(0).to(device)
-            image1_embedding = model.encode_image(image1_input).detach().cpu()
-            
-            # Convert second image to CLIP embedding
-            image2_input = preprocess(image2).unsqueeze(0).to(device)
-            image2_embedding = model.encode_image(image2_input).detach().cpu()
-
-            # Normalize embeddings
-            image1_embedding = image1_embedding / image1_embedding.norm(dim=-1, keepdim=True)
-            image2_embedding = image2_embedding / image2_embedding.norm(dim=-1, keepdim=True)
-
-            # Compute cosine similarity
-            cosine_similarity = torch.nn.functional.cosine_similarity(image1_embedding, image2_embedding).item()
-    
-            # Convert similarity to distance (1 - similarity)
-            cosine_distance = 1 - cosine_similarity
-            return cosine_distance
-    except Exception as e:
-        print(f"CLIP processing error: {e}")
-        return 1.0  # Return maximum distance on error
-
 def clip_text_image_distances_batch(texts: Union[str, List[str]], images: Union[Image.Image, List[Image.Image]], model_name = "ViT-B/32", device=None) -> Union[float, List[float]]:
     """
     Computes the cosine distance between texts and images using CLIP embeddings in batch mode.
@@ -1104,6 +1019,7 @@ def dinov2_image_image_distances_batch(
     # Determine device if not provided
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     if device is None:
+        
         device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     
     # print(f"dinov2_image_image_distances_batch: device: {device}")
@@ -1123,9 +1039,13 @@ def dinov2_image_image_distances_batch(
     valid_ref_indices = []
     valid_ref_images = []
     for i, img in enumerate(reference_images):
+        
         if img is not None:
+            pil_img = to_pil(img)
+            
+            
             valid_ref_indices.append(i)
-            valid_ref_images.append(to_pil(img))
+            valid_ref_images.append(pil_img)
     
     valid_query_indices = []
     valid_query_images = []

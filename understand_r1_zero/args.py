@@ -38,6 +38,7 @@ class ZeroSVGArgs(PPOArgs):
     require_greystyle: bool = False
     require_sketch: bool = False
     critic_type: Literal["ppo", "grpo", "drgrpo", "rfpp"] = "drgrpo"
+    lsc_lam:  float = 0.0
     
     
     # Verifier.
