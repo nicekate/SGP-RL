@@ -51,6 +51,11 @@ def is_format_correct(response):
     if "</think> <answer>" in response and "</answer>" in response:
         return True
     return False
+def defs_in_response(response):
+    if "<defs>" in response and "<use>" in response:
+        return True
+    
+    return False
 def no_text_in_response(response):
     if "</text>" in response:
         return False
@@ -78,7 +83,7 @@ def render_response_to_image(response, args=None):
     # Check for proper format with <think>/<answer> tags
     
     
-    if is_format_correct(response) and no_text_in_response(response):
+    if is_format_correct(response) and no_text_in_response(response) and defs_in_response(response):
         info["formatted"] = True
         # Extract content between <answer> tags
         answer_content = response.split("<answer>")[-1].replace("</answer>", "")
