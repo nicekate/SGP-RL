@@ -760,7 +760,7 @@ class ModelWorker:
             max_model_len=max_model_len,
             dtype="bfloat16",
             # enable_prefix_caching=False,  # Disable prefix caching to prevent memory accumulation
-            gpu_memory_utilization=0.7,   # Reduced to prevent OOM
+            gpu_memory_utilization=0.35,   # Reduced to prevent OOM
             # enforce_eager=True,           # Better memory management
             
         )
@@ -1161,8 +1161,8 @@ def select_checkpoints(model_path: str, num_checkpoints: int = 5, keep_steps = N
             step_to_dir[step] = cp
     
     # Always include the last checkpoint
-    last_step = step_numbers[-1]
-    mandatory_steps = [last_step]
+    # last_step = step_numbers[-1]
+    mandatory_steps = []
     
     # Add requested keep_steps
     for step in keep_steps:
@@ -1217,6 +1217,7 @@ def eval_checkpoints(
     wandb_entity: str = None,
     num_checkpoints: int = 5,  # Evaluate only 5 checkpoints
     num_gpus: int = 8,  # Number of GPUs to use for evaluation
+    keep_steps: list = None,  # Specific steps to always include
 ):
     """
     Evaluate SVG generation models across 5 evenly-spaced checkpoints and log to wandb.
@@ -1257,7 +1258,7 @@ def eval_checkpoints(
     selected_checkpoints = select_checkpoints(
         model_path,
         num_checkpoints=num_checkpoints,
-        keep_steps=[30,750]  # Always include the last checkpoint
+        keep_steps=keep_steps  # Always include the last checkpoint
     )
     print(f"Selected {len(selected_checkpoints)} checkpoints to evaluate from {len(checkpoint_dirs)} available")
     for cp in selected_checkpoints:

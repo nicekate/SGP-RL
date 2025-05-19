@@ -204,8 +204,47 @@ class ZeroSVGLearner(PPOLearner):
             advantages = advantages / (std_grouped_rewards + 1e-8)
             return advantages
             
+    def compute_exp_transformation(self, advantages):
+        """
+        Compute the exponential transformation for advantages.
         
+        Args:
+            advantages: Tensor of shape [batch_size]
+        
+        Returns:
+            Tensor of transformed advantages with shape [batch_size]
+        """
+        # Get alpha parameter from args
+        alpha = self.args.exp_alpha
+        
+        # Apply the exponential function
+        if alpha == 0:
+            return advantages
+        else:
+            # Apply sign(a) * exp(a * x) transformation
+            
+            signs = 1 if alpha>0 else -1
+           
+            transformed_advantages = signs * torch.exp(alpha * advantages)
+            
+            # Whiten the data (similar to LSC transformation)
+            # Group by prompts and compute statistics
+            values = transformed_advantages.view(-1, self.args.num_samples).mean(dim=1)
+            values = values.repeat_interleave(self.args.num_samples, dim=0)
+            
+            # Subtract mean
+            transformed_advantages = transformed_advantages - values
+            
+            # Normalize by standard deviation
+            std_grouped_rewards = transformed_advantages.view(-1, self.args.num_samples).std(dim=1)
+            std_grouped_rewards = std_grouped_rewards.repeat_interleave(
+                self.args.num_samples, dim=0
+            )
+            transformed_advantages = transformed_advantages / (std_grouped_rewards + 1e-8)
+            
+            return transformed_advantages
 
+    
     # Dr. GRPO Modification 2: Remove difficulty bias by just computing the MC advantage without dividing by std:
     def compute_monte_carlo_advantages(self, rewards):
         rewards = rewards.sum(-1)
@@ -221,6 +260,7 @@ class ZeroSVGLearner(PPOLearner):
             )
             advantages = advantages / (std_grouped_rewards + 1e-8)
             advantages = self.compute_lsc_transformation(advantages)
+            advantages = self.compute_exp_transformation(advantages)
         
         return advantages
     # Add this method to ZeroSVGLearner class

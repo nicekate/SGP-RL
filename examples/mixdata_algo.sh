@@ -110,4 +110,38 @@ python train_zero_svg.py \
 
 
 
+deepspeed --module run_sft \
+    --gpus 8 \
+    --collocate \
+    --gradient-checkpointing \
+    --flash-attn \
+    --algo SFT \
+    --learning_rate 0.0000001 \
+    --pretrain Qwen/Qwen2.5-3B \
+    --zero-stage 2 \
+    --preference_data lkevinzc/math-collection \
+    --num_prompt_epoch 2 \
+    --no-extract-content \
+    --apply_chat_template \
+    --max-train 9999999 \
+    --prompt_max_length 512 \
+    --generate_max_length 10000 \
+    --max_model_len 30000 \
+    --save_steps 30 \
+    --prompt_key prompt \
+    --chosen_key svg \
+    --rejected_key svg \
+    --train_split train \
+    --train_batch_size 128 \
+    --train_batch_size_per_device 4 \
+    --rollout_batch_size 128 \
+    --rollout_batch_size_per_device 16 \
+    --pi_buffer_maxlen_per_device 16 \
+    --eval_steps -1 \
+    --use-wb \
+    --wb_project oat-zero-svg \
+    --wb-run-name algo_sft
+
+
+
 

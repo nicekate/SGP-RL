@@ -1041,11 +1041,14 @@ def dinov2_image_image_distances_batch(
     for i, img in enumerate(reference_images):
         
         if img is not None:
-            pil_img = to_pil(img)
+            if not isinstance(img, Image.Image):
+                pil_img = to_pil(img)
+            else:
+                pil_img = img
             
             
             valid_ref_indices.append(i)
-            valid_ref_images.append(pil_img)
+            valid_ref_images.append(prepare_image(pil_img))
     
     valid_query_indices = []
     valid_query_images = []

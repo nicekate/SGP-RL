@@ -1,5 +1,23 @@
 from eval_utils import *
 
+
+import matplotlib as mpl                     # do this before importing pyplot
+# -------- global rcParams ---------------------------------------------------
+mpl.rcParams.update({
+    # 1) Font family – fall back gracefully if TNR is not present
+    "font.family": "serif",
+    "font.serif":  ["Times New Roman", "Times", "Liberation Serif", "Nimbus Roman"],
+    
+    # 2) Global text size (pt); change once, applies to all artists
+    "font.size": 16,
+    
+    # 3) Embed *TrueType* glyphs so text stays selectable in the PDF
+    "pdf.fonttype": 42,      # 42 = TrueType; 3 = outlines (non-selectable)
+    "ps.fonttype": 42,       # same idea for PS backend
+    
+    "svg.fonttype": "none",  # embed fonts in SVGs
+})
+
 def get_max_at_n(list_prompts, metric_name):
     """
     Calculate average maximum metric for increasing numbers of responses.
@@ -118,6 +136,88 @@ def get_max_at_n_across_steps(eval_dir_root, task_name, metric_name):
     
     return results_by_step
 
+def get_max_at_n_across_steps(eval_dir_root, task_name, metric_name, steps=[30,120,210,300,630,900]):
+    """
+    For each step directory in the evaluation root, call get_max_at_n for the specified task.
+    
+    Args:
+        eval_dir_root (str): Root directory containing step subdirectories
+        task_name (str): Name of the task to analyze (e.g., "coco")
+        metric_name (str): Name of the metric to evaluate
+        steps (list, optional): If provided, only process directories for these specific steps
+        
+    Returns:
+        dict: Dictionary with step numbers as keys and get_max_at_n results as values
+        {
+            30: {1: 0.75, 2: 0.82, ...},
+            60: {1: 0.77, 2: 0.84, ...},
+            ...
+        }
+    """
+    import os
+    import re
+    
+    # Find all step directories
+    step_dirs = []
+    for dir_name in os.listdir(eval_dir_root):
+        if os.path.isdir(os.path.join(eval_dir_root, dir_name)) and dir_name.startswith("step_"):
+            step_dirs.append(dir_name)
+    
+    # Sort step directories numerically
+    step_dirs.sort(key=lambda x: int(re.search(r'step_(\d+)', x).group(1)))
+    
+    # Filter by specific steps if provided
+    if steps is not None:
+        filtered_dirs = []
+        for dir_name in step_dirs:
+            step_match = re.search(r'step_(\d+)', dir_name)
+            if step_match and int(step_match.group(1)) in steps:
+                filtered_dirs.append(dir_name)
+        step_dirs = filtered_dirs
+        
+        # Log which steps were found
+        found_steps = [int(re.search(r'step_(\d+)', d).group(1)) for d in step_dirs]
+        missing_steps = [s for s in steps if s not in found_steps]
+        if missing_steps:
+            print(f"Warning: Could not find directories for steps: {missing_steps}")
+    
+    # Initialize results
+    results_by_step = {}
+    
+    # Process each step directory
+    for step_dir in step_dirs:
+        # Extract step number
+        step_match = re.search(r'step_(\d+)', step_dir)
+        if not step_match:
+            print(f"Warning: Could not extract step number from directory: {step_dir}")
+            continue
+        
+        step_num = int(step_match.group(1))
+        
+        # Build path to step evaluation directory
+        step_eval_dir = os.path.join(eval_dir_root, step_dir)
+        
+        # Read evaluation results for this step
+        try:
+            print(f"Processing step {step_num} from {step_eval_dir}")
+            step_results = read_evaluation_results(step_eval_dir, load_images=False)
+            
+            # Check if the requested task exists
+            if task_name in step_results:
+                task_prompts = step_results[task_name]
+                
+                # Get max metrics for the requested metric
+                max_metrics = get_max_at_n(task_prompts, metric_name)
+                
+                # Store the results
+                results_by_step[step_num] = max_metrics
+                print(f"  Added metrics for step {step_num}: {len(max_metrics)} data points")
+            else:
+                print(f"  Task '{task_name}' not found in step {step_num}")
+        except Exception as e:
+            print(f"  Error processing step {step_num}: {e}")
+    
+    return results_by_step
 
 def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(10, 6), save_path=None, 
                               plot_diff=False, log_scale=False, plot_linear_fit=True, mark_intercepts=True):
@@ -219,7 +319,7 @@ def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(1
                 
                 # Plot the regression line
                 ax.plot(x_fit, y_fit, '--', color=colors[i], linewidth=1.5, alpha=0.7, 
-                       label=f"Fit (Step {step_num}): y = {slope:.4f}·log10(x) + {intercept:.4f}")
+                       )
             else:
                 # Standard linear fit
                 slope, intercept = np.polyfit(x_array, y_array, 1)
@@ -240,10 +340,12 @@ def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(1
     # Mark intercepts between regression lines
     if mark_intercepts and plot_linear_fit and len(regression_lines) > 1:
         # Find and mark all intercepts between pairs of lines
-        for (step_a, line_a), (step_b, line_b) in combinations(regression_lines.items(), 2):
+        step_a, line_a = list(regression_lines.items())[0]
+        for  (step_b, line_b) in list(regression_lines.items())[1:]:
             slope_a, intercept_a, is_log_a = line_a
             slope_b, intercept_b, is_log_b = line_b
-            
+            step_indices = {step: i for i, step in enumerate(sorted_steps)}
+            color_b = colors[step_indices[step_b]]
             # Skip if different fit types (log vs linear)
             if is_log_a != is_log_b:
                 continue
@@ -267,33 +369,34 @@ def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(1
             y_min, y_max = ax.get_ylim()
             
             # Note: If log scale is used, x_min and x_max will be in log space
-            if log_scale:
-                x_min = 10 ** x_min
-                x_max = 10 ** x_max
+            # if log_scale:
+            #     x_min = 10 ** x_min
+            #     x_max = 10 ** x_max
             
-            if x_min <= x_intersect <= x_max and y_min <= y_intersect <= y_max:
+            # if x_min <= x_intersect <= x_max and y_min <= y_intersect <= y_max:
+            if True:
                 # Mark the intersection point
-                ax.plot(x_intersect, y_intersect, 'ro', markersize=6)
-                ax.annotate(f"({x_intersect:.1f}, {y_intersect:.4f})",
-                           xy=(x_intersect, y_intersect),
-                           xytext=(10, 10), textcoords='offset points',
-                           arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2"),
-                           bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.7))
+                ax.plot(x_intersect, y_intersect, 'ro', markersize=6,color=color_b)
+                # ax.annotate(f"{step_b}",
+                #            xy=(x_intersect, y_intersect),
+                #            xytext=(10, 10), textcoords='offset points',
+                #            arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2"),
+                #            bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.7))
     
     # Add labels and title
-    x_label = "Number of Responses (n)" + (" - Log Scale" if log_scale else "")
+    x_label = "Number of Sampling (N)" + (" - Log Scale" if log_scale else "")
     ax.set_xlabel(x_label)
     
     # Different labels based on plot type
     if plot_diff:
-        ax.set_ylabel(f"Δ Average Maximum {metric_name}")
-        ax.set_title(f"Change in Maximum {metric_name} Relative to First Step")
+        ax.set_ylabel(f"Δ Best of N Score")
+        ax.set_title(f"Improvement of Best of N Score at Different Number of Sampling")
         
         # Add a horizontal line at y=0 for reference in difference plots
         ax.axhline(y=0, color='red', linestyle='-', alpha=0.3, label="Baseline")
     else:
-        ax.set_ylabel(f"Average Maximum {metric_name}")
-        ax.set_title(f"Maximum {metric_name} at Different Response Counts")
+        ax.set_ylabel(f"Best of N Score")
+        ax.set_title(f"Best of N Score at Different Number of Sampling")
     
     # Add grid and legend
     ax.grid(True, linestyle='--', alpha=0.7)
@@ -311,11 +414,11 @@ def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(1
         # Modify save path for different plot types
         modified_save_path = save_path
         if plot_diff:
-            modified_save_path = modified_save_path.replace('.png', '_diff.png')
+            modified_save_path = modified_save_path.replace('.pdf', '_diff.pdf')
         if log_scale:
-            modified_save_path = modified_save_path.replace('.png', '_log.png')
+            modified_save_path = modified_save_path.replace('.pdf', '_log.pdf')
         if plot_linear_fit:
-            modified_save_path = modified_save_path.replace('.png', '_linearfit.png')
+            modified_save_path = modified_save_path.replace('.pdf', '_linearfit.pdf')
         plt.savefig(modified_save_path, dpi=300, bbox_inches='tight')
     
     return fig
@@ -549,55 +652,55 @@ def plot_metric_histograms(eval_dir_root, task_name, metrics_list=None, normaliz
     return figures_by_step
 
 
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    
-    eval_dir_root = "/home/chenyamei/codes/understand-r1-zero/evaluation_results/reward_siglipsmall/"
-    task_name = "coco"
-    
-    # Plot histograms with normalization
-    plot_metric_histograms(
-        eval_dir_root=eval_dir_root,
-        task_name=task_name,
-        metrics_list=["clip_small", "clip_large", "siglip_large", "siglip_small", "dino_small"],
-        normalize=True,
-        bins=30,
-        save_dir="./histogram_plots",
-        compare_steps=True
-    )
-    
-    # Plot histograms without normalization
-    plot_metric_histograms(
-        eval_dir_root=eval_dir_root,
-        task_name=task_name,
-        metrics_list=["clip_small", "clip_large", "siglip_large", "siglip_small", "dino_small"],
-        normalize=False,
-        bins=30,
-        save_dir="./histogram_plots",
-        compare_steps=True
-    )
-
 # if __name__ == "__main__":
 #     import matplotlib.pyplot as plt
     
-#     eval_dir_root = "/home/chenyamei/codes/understand-r1-zero/evaluation_results/old/reward_siglipsmall/"
+#     eval_dir_root = "/home/chenyamei/codes/understand-r1-zero/evaluation_results/reward_siglipsmall/"
 #     task_name = "coco"
     
-#     # You can also plot multiple metrics in separate figures
-#     for metric in [ "siglip_small", "dino_small"]:
-#         metrics = get_max_at_n_across_steps(eval_dir_root, task_name, metric)
+#     # Plot histograms with normalization
+#     plot_metric_histograms(
+#         eval_dir_root=eval_dir_root,
+#         task_name=task_name,
+#         metrics_list=["clip_small", "clip_large", "siglip_large", "siglip_small", "dino_small"],
+#         normalize=True,
+#         bins=30,
+#         save_dir="./histogram_plots",
+#         compare_steps=True
+#     )
+    
+#     # Plot histograms without normalization
+#     plot_metric_histograms(
+#         eval_dir_root=eval_dir_root,
+#         task_name=task_name,
+#         metrics_list=["clip_small", "clip_large", "siglip_large", "siglip_small", "dino_small"],
+#         normalize=False,
+#         bins=30,
+#         save_dir="./histogram_plots",
+#         compare_steps=True
+#     )
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    
+    eval_dir_root = "/home/chenyamei/codes/understand-r1-zero/../for_plot/reward_siglipsmall/"
+    task_name = "coco"
+    
+    # You can also plot multiple metrics in separate figures
+    for metric in [ "siglip_small"]:
+        metrics = get_max_at_n_across_steps(eval_dir_root, task_name, metric)
         
-#         # Standard plot with linear regression lines
-#         plot_max_at_n_across_steps(
-#             metrics, 
-#             metric, 
-#             max_n=None, 
-#             save_path=f"BestatN_{metric}_progress.png",
-#             plot_diff=True,
-#             log_scale=True,
-#             plot_linear_fit=True,
-#             mark_intercepts=True
-#         )
+        # Standard plot with linear regression lines
+        plot_max_at_n_across_steps(
+            metrics, 
+            metric, 
+            max_n=None, 
+            save_path=f"BestatN_{metric}_progress.pdf",
+            plot_diff=True,
+            log_scale=True,
+            plot_linear_fit=True,
+            mark_intercepts=True
+        )
         
         
 

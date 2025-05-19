@@ -45,6 +45,7 @@ class MixedSVGImageDataset:
         complexity_threshold: Optional[float] = None,
         instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:",
         seed: int = 42,
+        think_tokens: bool = True,
         **kwargs
     ) -> Union[Dataset, IterableDataset]:
         """
@@ -72,6 +73,7 @@ class MixedSVGImageDataset:
             max_train_samples=-1,  # Load all available COCO data
             max_test_samples=-1,   # Load all available COCO data
             instruction_prompt = instruction_prompt,
+            think_tokens = think_tokens
         )
         
         # Get sizes of original COCO dataset
@@ -95,6 +97,7 @@ class MixedSVGImageDataset:
             complexity_threshold=complexity_threshold,
             instruction_prompt = instruction_prompt,
             seed=seed,
+            think_tokens = think_tokens
         )
         
         # Get sizes of SVG dataset splits
@@ -200,17 +203,18 @@ if __name__ == "__main__":
         max_train_samples=-1,  # 500 from each source
         max_test_samples=500,    # 100 from each source
         filter_successful_only=True,
+        think_tokens=False,
     )
     
     # Print sample entries
     print("\nSample COCO entry:")
     coco_sample = next(x for x in dataset['train'] if x['dataset_source'] == 'coco')
     for k, v in coco_sample.items():
-        if k != 'prompt':  # Skip printing full prompt
-            print(f"{k}: {v}")
+        # if k != 'prompt':  # Skip printing full prompt
+        print(f"{k}: {v}")
     
     print("\nSample SVG entry:")
     svg_sample = next(x for x in dataset['train'] if x['dataset_source'] == 'svg')
     for k, v in svg_sample.items():
-        if k != 'prompt' and k != 'svg':  # Skip printing full SVG and prompt
-            print(f"{k}: {v}")
+        # if k != 'prompt' and k != 'svg':  # Skip printing full SVG and prompt
+        print(f"{k}: {v}")
