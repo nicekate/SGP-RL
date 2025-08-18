@@ -91,7 +91,7 @@ class HQSVGDataset:
         else:
             dataset['test'] = dataset['train'].select(range(10))
         # Process examples to match expected format
-        process_with_instruction = lambda example: HQSVGDataset.process_example(
+        process_with_instruction = lambda example: HQSVGDataset.process_examples(
         example, instruction_prompt=instruction_prompt, think_tokens=think_tokens
             )
         dataset = dataset.map(process_with_instruction)
@@ -105,18 +105,21 @@ class HQSVGDataset:
             
         return dataset
     @staticmethod
-    def process_example(example: Dict[str, Any], instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:", think_tokens:bool=True) -> Dict[str, Any]:
+    def process_examples(example: Dict[str, Any], instruction_prompt: str = "Please write SVG code for generating the image corresponding to the following description:", think_tokens:bool=True) -> Dict[str, Any]:
         """
         Process a single example from the dataset
         """
         # Ensure the svg field exists
         svg = example.get('svg', '')
         description = example.get('description', '')
+
         if think_tokens:
             prompt = "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>."
+            prompt += f"\nUser: {instruction_prompt} " + description + "\nAssistant: <think>"
         else:
             prompt = "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant provides the User with the answer enclosed within <answer> </answer> tags, i.e., <answer> answer here </answer>."
-        prompt += f"\nUser: {instruction_prompt} " + description + "\nAssistant: <think>"
+            prompt += f"\nUser: {instruction_prompt} " + description + "\nAssistant: <answer>"
+        
         # Create the formatted prompt
        
         

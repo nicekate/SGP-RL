@@ -219,6 +219,8 @@ def get_max_at_n_across_steps(eval_dir_root, task_name, metric_name, steps=[30,1
     
     return results_by_step
 
+
+
 def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(10, 6), save_path=None, 
                               plot_diff=False, log_scale=False, plot_linear_fit=True, mark_intercepts=True):
     """
@@ -312,14 +314,25 @@ def plot_max_at_n_across_steps(step_metrics, metric_name, max_n=None, figsize=(1
                 if max_n is not None:
                     x_fit_log = np.linspace(np.log10(min(x_values)), np.log10(max_n), 100)
                 else:
-                    x_fit_log = np.linspace(np.log10(min(x_values)), np.log10(max(x_values)), 100)
+                    x_fit_log = np.linspace(np.log10(min(x_values)), 8, 100)
                 
                 y_fit = slope * x_fit_log + intercept
                 x_fit = 10 ** x_fit_log  # Convert back to normal space for plotting
                 
                 # Plot the regression line
-                ax.plot(x_fit, y_fit, '--', color=colors[i], linewidth=1.5, alpha=0.7, 
-                       )
+                # ax.plot(x_fit, y_fit, '--', color=colors[i], linewidth=1.5, alpha=0.7, 
+                #        )
+                
+                # Create a custom transform that applies 10^x without computing the values
+                
+    
+                
+
+
+            
+ 
+                ax.plot(x_fit, y_fit, '--', color=colors[i], linewidth=1.5, alpha=0.7, #transform=    xform,
+                )
             else:
                 # Standard linear fit
                 slope, intercept = np.polyfit(x_array, y_array, 1)

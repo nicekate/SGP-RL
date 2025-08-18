@@ -48,7 +48,7 @@ def length_penalty(length: int) -> float:
 
 
 def is_format_correct(response):
-    if "</think> <answer>" in response and "</answer>" in response:
+    if "</think> <answer>" in response and response.endswith("</answer>"):
         return True
     return False
 def defs_in_response(response):
@@ -87,6 +87,7 @@ def render_response_to_image(response, args=None):
         info["formatted"] = True
         # Extract content between <answer> tags
         answer_content = response.split("<answer>")[-1].replace("</answer>", "")
+        # answer_content = response.replace("</answer>", "")
         svg_content = extract_svg(answer_content)
         
     else:

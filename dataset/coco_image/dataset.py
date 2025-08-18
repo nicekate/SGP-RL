@@ -113,9 +113,11 @@ class COCOImageDataset:
         
         if think_tokens:
             prompt = "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. The reasoning process is enclosed within <think> </think> and answer is enclosed within <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>."
+            prompt += f"\nUser: {instruction_prompt} "+ example["sentences"]["raw"] + "\nAssistant: <think>"
         else:
             prompt = "A conversation between User and Assistant. The User asks a question, and the Assistant solves it. The Assistant provides the User with the answer enclosed within <answer> </answer> tags, i.e., <answer> answer here </answer>."
-        prompt += f"\nUser: {instruction_prompt} "+ example["sentences"]["raw"] + "\nAssistant: <think>"
+            prompt += f"\nUser: {instruction_prompt} "+ example["sentences"]["raw"] + "\nAssistant: <answer>"
+        
         return {
             "prompt": prompt,
             "solution": example["sentences"]["raw"],
