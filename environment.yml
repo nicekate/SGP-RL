@@ -1,0 +1,17 @@
+name: drnn
+channels:
+  - defaults
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - python=3.10
+  - cuda-toolkit
+  - pycairo
+  - ipykernel
+  - cairo
+  - pkg-config
+  - cairosvg
+  - xorg-libx11
+  - xorg-libxext
+  - xorg-libxcb
+  - xorg-libxrender
