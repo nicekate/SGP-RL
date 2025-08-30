@@ -42,5 +42,4 @@ class ZeroSVGArgs(PPOArgs):
     exp_alpha: float = 0.0
     
     
-    # Verifier.
-    # verifier_version: Literal["fast", "math_verify"] = field(default="fast")
+    

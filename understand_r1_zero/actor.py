@@ -100,7 +100,6 @@ class ZeroSVGActor(PPOActor):
         """Main logic for the actor to generate trajectories (reasoning traces)."""
         assert not self.eval_mode
         info = {}
-        logging.info(f"actor start")
         
     
         # step 1. generate
@@ -154,7 +153,6 @@ class ZeroSVGActor(PPOActor):
         )
 
         info["actor/verify_time"] = time.time() - st
-        logging.info(f"actor reward {rewards.mean()}")
         info["actor/rewards"] = rewards.mean().item()
         info["actor/num_data"] = rewards.numel()
         info["actor/formatted"] = np.mean([i["formatted"] for i in oracle_infos])
@@ -214,7 +212,6 @@ class ZeroSVGActor(PPOActor):
                     
 
             
-        logging.info(f"actor finished data_len={len(trajectory_data)}")
         handle = self.ipc_client.serialize_ipc(trajectory_data)
         return handle
             
@@ -230,7 +227,6 @@ class ZeroSVGActor(PPOActor):
         """Main logic for the actor to generate trajectories (reasoning traces)."""
         assert not self.eval_mode
         info = {}
-        logging.info(f"actor start")
         
     
         # step 1. generate
@@ -284,7 +280,6 @@ class ZeroSVGActor(PPOActor):
         )
 
         info["actor/verify_time"] = time.time() - st
-        logging.info(f"actor reward {rewards.mean()}")
         info["actor/rewards"] = rewards.mean().item()
         info["actor/num_data"] = rewards.numel()
         info["actor/formatted"] = np.mean([i["formatted"] for i in oracle_infos])
@@ -371,7 +366,6 @@ class ZeroSVGActor(PPOActor):
                     
 
             
-        logging.info(f"actor finished data_len={len(trajectory_data)}")
         handle = self.ipc_client.serialize_ipc(trajectory_data)
         return handle
 

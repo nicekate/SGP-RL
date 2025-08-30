@@ -487,7 +487,6 @@ class ZeroSVGLearner(PPOLearner):
         scores = []
         lens = []
         for benchmark_name, dataset in self.eval_svg_dataset_dict.items():
-            # logging.info(f"Start Evaluating {benchmark_name} at step {steps}")
             eval_prompts_dataloader = DataLoader(
                 dataset,
                 batch_size=self.args.eval_batch_size,
@@ -530,7 +529,6 @@ class ZeroSVGLearner(PPOLearner):
                 "eval_svg/average/response_tok_len": np.mean(lens),
             }
         )
-        # logging.info("return from evaluate_svg")
         return all_metrics
 
 
@@ -547,7 +545,6 @@ class ZeroSVGLearner(PPOLearner):
 
         if not self.strategy.args.debug:
             self.eval_and_log({}, eval=True, save=False)
-            # logging.info("finish eval_and_log")
 
         self.steps = 1
         self.gradient_update_st = time.time()
@@ -607,7 +604,6 @@ class ZeroSVGLearner(PPOLearner):
                     self._pre_learning()
                     train_info = self.learn(self.steps // self.update_interval)
                     self._post_learning()
-                    logging.info(f"after _post_learning")
 
                     self.eval_and_log(train_info)
 
@@ -650,7 +646,6 @@ class ZeroSVGLearner(PPOLearner):
         eval_info = {}
         if (self.args.eval_steps > 0 and eval) or self._should_do(self.args.eval_steps):
             eval_info = self.evaluate_svg(None, self.steps)
-            # logging.info("finish eval")
 
         # save
         
@@ -691,7 +686,6 @@ class ZeroSVGLearner(PPOLearner):
                     op="sum",
                 )
             )
-            # logging.info("finish logs_dict.update")
 
             if self.strategy.is_rank_0():
                 if self.pi_buffer:
@@ -700,9 +694,7 @@ class ZeroSVGLearner(PPOLearner):
                 self.strategy.pprint(logs_dict)
                 if self._wandb is not None:
                     self._wandb.log(logs_dict,step=self.steps)
-                    # logging.info(f"finish logging metrics keys {logs_dict.keys()}")
-            # logging.info("exit eval_and_log")
-   
+                   
    
    
     def _prepare_additional_metrics(self, all_logging_data):
@@ -928,7 +920,6 @@ class ZeroSVGLearner(PPOLearner):
                 tree.map_structure(lambda x: len(self.tokenizer.encode(x)), responses)
             )
         
-            # logging.info("start to gather additional_metrics")
                 
             
             
@@ -950,8 +941,7 @@ class ZeroSVGLearner(PPOLearner):
         dist.barrier()
         
 
-        # logging.info("return from do_evaluate")
-        # logging.info(f"logging data keys: {all_logging_data.keys()}")
+       
         return {
             "eval/rm_win_rate": win_rate,
             "eval/score": scores,
