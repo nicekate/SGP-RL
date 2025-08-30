@@ -76,6 +76,6 @@ python evaluate_svg_model.py
 
 # SGP-CompBench
 
-[understand-r1-zero/sgp-compbench](understand-r1-zero/sgp-compbench/)
+[sgp-compbench](sgp-compbench/)
 
 
