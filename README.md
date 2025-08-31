@@ -67,8 +67,8 @@ python train_zero_svg.py \
     --dino_coeff 0 
 ```
 
-# Evaluating the Model
-
+# Evaluating the Model on COCO–val and SGP–Single-9k-val
+Sampling model responses and calculating DINO-score, CLIP-score and Diversity:
 ```bash
 python evaluate_svg_model.py 
     --model_path YOUR_MODEL_PATH  
