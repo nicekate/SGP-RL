@@ -73,6 +73,7 @@ python train_zero_svg.py \
 python evaluate_svg_model.py 
     --model_path YOUR_MODEL_PATH  
 ```
+To get the VQA and HPS metrics, check [eval_tools](eval_tools/)
 
 # SGP-CompBench
 
