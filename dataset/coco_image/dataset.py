@@ -7,6 +7,9 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image
 from torchvision import transforms
+import os
+from pathlib import Path
+
 
 image_transform = transforms.Compose([
     transforms.ToTensor(),
@@ -38,7 +41,18 @@ class COCOImageDataset:
         """
         Load the dataset from local files at ~/data/coco
         """
-        coco_dir = os.path.expanduser("~/data/coco")
+        # Read from env; fall back to ~/data/coco
+        _COCO_ENV = os.getenv("COCO_DIR", "~/data/coco")
+
+        # Expand ~ and any $VARS the user might put in the env value
+        coco_dir = Path(os.path.expandvars(os.path.expanduser(_COCO_ENV)))
+
+        # (optional) sanity check
+        if not coco_dir.exists():
+            raise FileNotFoundError(
+                f"COCO_DIR points to '{coco_dir}', which doesn't exist. "
+                "Set COCO_DIR or create the directory."
+            )
         
         # Load annotations
         train_captions_file = os.path.join(coco_dir, "annotations/captions_train2017.json")

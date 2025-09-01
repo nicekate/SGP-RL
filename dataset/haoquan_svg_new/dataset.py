@@ -3,6 +3,7 @@ from datasets import Dataset, IterableDataset
 import json
 import os
 import torch
+from pathlib import Path
 
 class NewHQSVGDataset:
     """
@@ -42,7 +43,21 @@ class NewHQSVGDataset:
         """
         train_data = []
         test_data = []
-        
+        # Read from env; fall back to ~/data/haoquan_svg
+        _HQSVG_ENV = os.getenv("SVG_DIR", "~/data/haoquan_svg")
+
+        # Expand ~ and any $VARS the user might put in the env value
+        hqsvg_dir = Path(os.path.expandvars(os.path.expanduser(_HQSVG_ENV)))
+
+        # (optional) sanity check
+        if not hqsvg_dir.exists():
+            raise FileNotFoundError(
+                f"HQSVG_DIR points to '{hqsvg_dir}', which doesn't exist. "
+                "Set HQSVG_DIR or create the directory."
+            )
+        train_path = str(hqsvg_dir / "train.json")
+        test_path = str(hqsvg_dir / "test.json")
+
         # Load training data
         if os.path.exists(train_path):
             with open(train_path, 'r') as f:

@@ -3,6 +3,7 @@ from datasets import load_dataset, Dataset, IterableDataset
 import json
 import os
 import torch
+from pathlib import Path
 
 
 
@@ -42,6 +43,20 @@ class HQSVGDataset:
             seed: Random seed for shuffling and splitting
             **kwargs: Additional arguments
         """
+
+        # Read from env; fall back to ~/data/haoquan_svg
+        _HQSVG_ENV = os.getenv("SVG_DIR", "~/data/haoquan_svg")
+
+        # Expand ~ and any $VARS the user might put in the env value
+        hqsvg_dir = Path(os.path.expandvars(os.path.expanduser(_HQSVG_ENV)))
+
+        # (optional) sanity check
+        if not hqsvg_dir.exists():
+            raise FileNotFoundError(
+                f"HQSVG_DIR points to '{hqsvg_dir}', which doesn't exist. "
+                "Set HQSVG_DIR or create the directory."
+            )
+        dataset_path = str(hqsvg_dir / "svg-gen-70k.jsonl")
         # Load from JSONL file
         if os.path.isdir(dataset_path):
             # If a directory, look for jsonl files
