@@ -26,6 +26,7 @@ pip install -e .
 
 pip install cairosvg openai-clip lxml
 ```
+We provide a requirements.txt recording the version informations for reference.
 
 
 ## Quick Start
