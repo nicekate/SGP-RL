@@ -12,14 +12,19 @@
 
 
 ```bash
-# 1) Create the environment from the project spec
 conda env create -n sgp_gen -f environment.yml
 
-# 2) Activate the environment
 conda activate sgp_gen
 
-# 3) Install Python dependencies
-pip install -r requirements.txt
+pip install vllm==0.7.2 && pip install oat-llm==0.0.9
+
+git clone git@github.com:Sphere-AI-Lab/SGP-RL.git
+
+cd SGP-RL
+
+pip install -e .
+
+pip install cairosvg openai-clip lxml
 ```
 
 
@@ -53,8 +58,8 @@ You should have:
 
 2) setup the svg training data:
 download the dataset file at https://huggingface.co/datasets/haoquan03/SVG-Gen-70k/blob/main/svg-gen-70k.jsonl
-put it to YOUR_SVG_DIR.
-setup environment variables:
+
+Put it into YOUR_SVG_DIR and setup environment variables:
 ```bash
 export SVG_DIR=YOUR_SVG_DIR
 ```
@@ -64,7 +69,8 @@ export SVG_DIR=YOUR_SVG_DIR
 Download SGP-Single-9k dataset at  
 https://huggingface.co/datasets/haoquan03/SGP-Single-9k/blob/main/eval.json
 https://huggingface.co/datasets/haoquan03/SGP-Single-9k/blob/main/train.json
-put it in YOUR_SVG_DIR.
+
+Put it into YOUR_SVG_DIR.
 
 
 ### RL Training
@@ -86,10 +92,6 @@ Evaluation on SGP-CompBench:
 
 
 
-
-
-## Contribution
-PLACE HOLDER
 
 ## Citation
 

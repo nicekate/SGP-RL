@@ -1,11 +1,11 @@
-name: drnn
+name: sgp_gen
 channels:
   - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
 dependencies:
   - python=3.10
-  - cuda-toolkit
+  - cuda-toolkit=12.4
   - pycairo
   - ipykernel
   - cairo

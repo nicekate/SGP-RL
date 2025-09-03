@@ -7,7 +7,6 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image
 from torchvision import transforms
-import os
 from pathlib import Path
 
 
