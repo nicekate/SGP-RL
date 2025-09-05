@@ -3,11 +3,15 @@
 # Symbolic Graphics Programming with Large Language Models
 
 <div align="center">
-  <img src="assets/teaser.pdf" alt="teaser image" width="820">
+  <img src="./assets/teaser.png" alt="teaser image" width="820">
   <br>
   <sup><em>As training progresses, we can observe that the model acquires better
 compositional drawing ability, producing semantically accurate symbolic graphics programs.</em></sup>
 </div>
+
+## What We Did in This Project
+
+LLMs are strong at coding, but their ability to write symbolic graphics programs (SGPs) that render images (especially SVGs) is underexplored. This work studies text-to-SGP generation as a probe of visual generation, introducing SGP-GenBench to evaluate object-, scene-, and composition-level performance across open and proprietary models, revealing notable shortcomings. To improve results, we use reinforcement learning with rewards from visual–text similarity scores, which steadily enhances SVG quality and semantic alignment. Experiments show substantial gains, bringing performance close to state-of-the-art closed-source models.
 
 ## Installation
 
@@ -31,7 +35,20 @@ We provide a requirements.txt recording the version informations for reference.
 
 ## Quick Start
 
-### Prepare Training Datasets
+### Prepare Datasets
+
+#### Automatically Download All Required Data
+
+We provide a script for automatically downloading all training and evaluation datasets:
+```bash
+bash prepare_data.sh
+```
+
+#### Manually Download datasets
+
+Alternatively, you can also download the datasets manually.
+
+##### Training Datasets
 
 
 1) Setup COCO 2017 dataset(assume you put it in COCO_DIR):
@@ -66,7 +83,7 @@ export SVG_DIR=YOUR_SVG_DIR
 ```
 
 
-### Prepare SGP-Single-9k Datasets (for evaluation)
+##### SGP-Object Datasets (for evaluation)
 Download SGP-Object dataset at  
 https://huggingface.co/datasets/SphereLab/SGP-Object/resolve/main/SGP-Object.json
 
@@ -92,6 +109,7 @@ Evaluation on SGP-CompBench:
 
 
 ## Acknowledgement
+This code is based on [understand-r1-zero](https://github.com/sail-sg/understand-r1-zero).
 
 
 ## Citation
