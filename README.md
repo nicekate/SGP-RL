@@ -2,6 +2,13 @@
 
 # Symbolic Graphics Programming with Large Language Models
 
+<div align="center">
+  <img src="assets/teaser.pdf" alt="teaser image" width="820">
+  <br>
+  <sup><em>As training progresses, we can observe that the model acquires better
+compositional drawing ability, producing semantically accurate symbolic graphics programs.</em></sup>
+</div>
+
 ## Installation
 
 ```bash
