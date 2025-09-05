@@ -2,14 +2,7 @@
 
 # Symbolic Graphics Programming with Large Language Models
 
-
-
-
-
-
-
 ## Installation
-
 
 ```bash
 conda env create -n sgp_gen -f environment.yml
@@ -58,7 +51,7 @@ You should have:
     ...
 
 2) setup the svg training data:
-download the dataset file at https://huggingface.co/datasets/haoquan03/SVG-Gen-70k/blob/main/svg-gen-70k.jsonl
+download the dataset file at https://huggingface.co/datasets/SphereLab/SGP-Gen-70k/resolve/main/svg-gen-70k.jsonl
 
 Put it into YOUR_SVG_DIR and setup environment variables:
 ```bash
@@ -67,9 +60,8 @@ export SVG_DIR=YOUR_SVG_DIR
 
 
 ### Prepare SGP-Single-9k Datasets (for evaluation)
-Download SGP-Single-9k dataset at  
-https://huggingface.co/datasets/haoquan03/SGP-Single-9k/blob/main/eval.json
-https://huggingface.co/datasets/haoquan03/SGP-Single-9k/blob/main/train.json
+Download SGP-Object dataset at  
+https://huggingface.co/datasets/SphereLab/SGP-Object/resolve/main/SGP-Object.json
 
 Put it into YOUR_SVG_DIR.
 
@@ -92,6 +84,7 @@ Evaluation on SGP-CompBench:
 [sgp-compbench](sgp-compbench/)
 
 
+## Acknowledgement
 
 
 ## Citation

@@ -15,7 +15,7 @@ python train_zero_svg.py \
     --beta 0 \
     --oracle_type reward \
     --oracle svg \
-    --pretrain Qwen/Qwen2.5-3B \
+    --pretrain Qwen/Qwen2.5-7B \
     --prompt_template r1_svg \
     --zero-stage 2 \
     --ref_offload \
