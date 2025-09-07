@@ -9,7 +9,7 @@
 compositional drawing ability, producing semantically accurate symbolic graphics programs.</em></sup>
 </div>
 
-## What We Did in This Project
+## Introduction
 
 LLMs are strong at coding, but their ability to write symbolic graphics programs (SGPs) that render images (especially SVGs) is underexplored. This work studies text-to-SGP generation as a probe of visual generation, introducing SGP-GenBench to evaluate object-, scene-, and composition-level performance across open and proprietary models, revealing notable shortcomings. To improve results, we use reinforcement learning with rewards from visual–text similarity scores, which steadily enhances SVG quality and semantic alignment. Experiments show substantial gains, bringing performance close to state-of-the-art closed-source models.
 
