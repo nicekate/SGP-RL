@@ -114,7 +114,12 @@ This code is based on [understand-r1-zero](https://github.com/sail-sg/understand
 
 ## Citation
 
-```python
-PLACE HOLDER
+```bib
+chen2025symbolic,
+    title={Symbolic Graphics Programming with Large Language Models}, 
+    author={Yamei Chen and Haoquan Zhang and Yangyi Huang and Zeju Qiu and Kaipeng Zhang and Yandong Wen and Weiyang Liu},
+    journal={arXiv preprint arXiv:2509.05208},
+    year={2025}
+}
 ```
 
