@@ -194,18 +194,20 @@ def print_results_summary(results):
                     print(f"    {metric_name}: {value:.4f}")
             
             print()
-def extract_all_steps_results(eval_root="./evaluation_results", run_rewards = {'reward_siglipsmall': ['siglip_small'],
-                                                                               'reward_sigliplongsmall': ['siglip_small'],
-                                                                               'reward_clipsmall': ['clip_small'],
-                                                                               'reward_cliplarge': ['clip_large'],
-                                                                               'reward_siglipsmalldinopatch':[],
-                                                                               'reward_sigliplarge': ['siglip_large'],
-                                                                               'scale_reward_cliponly_siglip': ['siglip_small'],
-                                                                               'data_svgonly': ['siglip_small'],
-                                                                               'reward_siglipsmalldinolarge': ['siglip_large','dino_large'],
-                                                                               'reward_siglipsmalldino': ['siglip_small','dino_small'],
-                                                                               'reward_siglipsmalldinobase': ['siglip_small','dino_base'],
-                                                                               'reward_siglipsmalldinogiant': ['siglip_small','dino_giant'],}):
+def extract_all_steps_results(eval_root="./evaluation_results", run_rewards = {}
+                            #   , run_rewards = {'reward_siglipsmall': ['siglip_small'],
+                            #                                                    'reward_sigliplongsmall': ['siglip_small'],
+                            #                                                    'reward_clipsmall': ['clip_small'],
+                            #                                                    'reward_cliplarge': ['clip_large'],
+                            #                                                    'reward_siglipsmalldinopatch':[],
+                            #                                                    'reward_sigliplarge': ['siglip_large'],
+                            #                                                    'scale_reward_cliponly_siglip': ['siglip_small'],
+                            #                                                    'data_svgonly': ['siglip_small'],
+                            #                                                    'reward_siglipsmalldinolarge': ['siglip_large','dino_large'],
+                            #                                                    'reward_siglipsmalldino': ['siglip_small','dino_small'],
+                            #                                                    'reward_siglipsmalldinobase': ['siglip_small','dino_base'],
+                            #                                                    'reward_siglipsmalldinogiant': ['siglip_small','dino_giant'],}
+                            ):
     """
     Extract evaluation metrics for all steps from all runs.
     

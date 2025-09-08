@@ -99,8 +99,15 @@ bash train_zero_svg.sh
 ### Evaluation on SGP-GenBench
 Sampling model responses and calculating DINO-score, CLIP-score and Diversity on SGP-:
 ```bash
+# modify the sampling parameters to match your training settings
 python evaluate_svg_model.py 
     --model_path YOUR_MODEL_PATH  
+```
+By default, the sampled responses are stored in ./evaluation_results
+To print out the important metrics as csv, 
+```bash
+# modify the sampling parameters to match your training settings
+bash print_results.sh
 ```
 To get the VQA and HPS metrics, check [eval_tools](eval_tools/)
 
